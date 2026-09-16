@@ -1,0 +1,6 @@
+alpaca-py
+pandas
+numpy
+streamlit
+requests
+python-telegram-bot
