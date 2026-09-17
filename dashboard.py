@@ -2,26 +2,28 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from ai_engine import AIEngine
+from risk_manager import RiskManager
 
 st.set_page_config(page_title="JALWE AI TRADER V3", layout="wide")
 
-st.title("🚀 JALWE AI TRADER V3 - Live Dashboard")
-st.markdown("Real-time monitoring for automated paper trading pipeline with advanced AI scoring & analytics.")
+st.title("🚀 JALWE AI TRADER V3 - Advanced Dashboard")
+st.markdown("Real-time automated paper trading pipeline integrated with AI Scoring & Risk Management.")
 
 ai_engine = AIEngine()
+risk_manager = RiskManager()
 
 # Metrics overview
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("Total Scanned", "104")
+    st.metric("Account Balance", "$10,000.00")
 with col2:
     st.metric("Active Positions", "67")
 with col3:
-    st.metric("AI Engine Status", "Active & Optimized")
+    st.metric("Risk Status", "Protected (2% Max)")
 
 st.markdown("---")
 
-# Interactive Plotly Equity Curve Section
+# Portfolio Equity Curve
 st.subheader("📈 Portfolio Performance & Equity Curve")
 chart_data = pd.DataFrame({
     "Time": ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"],
@@ -32,26 +34,27 @@ fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
 st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
-st.subheader("🤖 Live AI Opportunity Evaluation")
+st.subheader("🤖 AI Opportunities & Risk Evaluation")
 
 symbols = ["AAPL", "TSLA", "BTCUSD", "ETHUSD", "NVDA"]
-ai_data = []
+combined_data = []
 
 for symbol in symbols:
-    evaluation = ai_engine.evaluate_opportunity(symbol)
-    ai_data.append(evaluation)
+    ai_eval = ai_engine.evaluate_opportunity(symbol)
+    # Estimate sample entry price based on symbol
+    entry_price = 175.0 if symbol == "AAPL" else (240.0 if symbol == "TSLA" else 63000.0)
+    risk_eval = risk_manager.evaluate_risk(symbol, entry_price, ai_eval["decision"] if ai_eval["decision"] in ["BUY", "SELL"] else "BUY")
+    
+    combined_data.append({
+        "symbol": symbol,
+        "ai_score": ai_eval["ai_score"],
+        "sentiment": ai_eval["sentiment"],
+        "decision": ai_eval["decision"],
+        "entry_price": entry_price,
+        "stop_loss": risk_eval["stop_loss"],
+        "take_profit": risk_eval["take_profit"],
+        "position_size": risk_eval["position_size"]
+    })
 
-df_ai = pd.DataFrame(ai_data)
-st.dataframe(df_ai, use_container_width=True)
-
-st.markdown("---")
-st.subheader("📊 Executed Trades Log")
-dummy_trades = pd.DataFrame({
-    "id": [1, 2, 3],
-    "timestamp": ["2026-09-18 12:00", "2026-09-18 12:15", "2026-09-18 12:30"],
-    "symbol": ["AAPL", "TSLA", "BTCUSD"],
-    "direction": ["BUY", "BUY", "HOLD"],
-    "entry_price": [175.5, 240.2, 63000.0],
-    "status": ["Active", "Active", "Pending"]
-})
-st.dataframe(dummy_trades, use_container_width=True)
+df_combined = pd.DataFrame(combined_data)
+st.dataframe(df_combined, use_container_width=True)
