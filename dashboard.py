@@ -13,12 +13,10 @@ def send_streamlit_telegram_alert(message: str):
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        print(f"STATUS CODE: {response.status_code}")
-        print(f"RESPONSE TEXT: {response.text}")
-        return response.status_code == 200
+        # سنقوم بإرجاع حالة الاستجابة والنص كاملاً لنعرف السبب
+        return response.status_code, response.text
     except Exception as e:
-        print(f"ERROR: {e}")
-        return False
+        return 500, str(e)
 
 st.set_page_config(page_title="JALWE AI TRADER V4", layout="wide")
 
@@ -44,11 +42,13 @@ st.info(f"**بروتوكول الإجراء الحالي:** {event_status['actio
 
 if st.button("🚨 إرسال تنبيه طوارئ يدوي عبر تيليجرام"):
     alert_msg = "🚨 جالوه آي تريدر V4 - تنبيه طوارئ يدوي 🚨\n\nتم تفعيل بروتوكول حماية رأس المال يدوياً عبر لوحة التحكم بنجاح يا بدر!"
-    success = send_streamlit_telegram_alert(alert_msg)
-    if success:
-        st.success("تم إرسال التنبيه إلى تيليجرام بنجاح ورسعت الاستجابة!")
+    status_code, response_text = send_streamlit_telegram_alert(alert_msg)
+    
+    if status_code == 200:
+        st.success("تم إرسال التنبيه إلى تيليجرام بنجاح!")
     else:
-        st.error("فشل إرسال التنبيه، تحقق من سجلات Railway Logs لمعرفة السبب.")
+        # سيطبع لنا السبب الحقيقي القادم من تيليجرام حرفياً على الشاشة
+        st.error(f"خطأ من تيليجرام (الكود {status_code}): {response_text}")
 
-st.markdown("---")
+st.markdown---()
 st.caption("JALWE AI TRADER V4 • أنظمة ذاتية مؤسسية متقدمة")
