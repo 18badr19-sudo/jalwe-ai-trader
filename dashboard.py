@@ -19,43 +19,43 @@ def send_streamlit_telegram_alert(message: str):
     except Exception as e:
         print(f"Telegram error: {e}")
 
-# Trigger startup alert once when dashboard loads
+# Trigger startup alert once when dashboard loads (in Arabic)
 if "alert_sent" not in st.session_state:
-    send_streamlit_telegram_alert("🟢 *JALWE AI TRADER V4 - DASHBOARD ONLINE*\n\n🏛️ *System Status:* Web UI & Telegram Dispatcher Active.")
+    send_streamlit_telegram_alert("🟢 *نظام جالوه آي تريدر V4 - متصل الآن*\n\n🏛️ *حالة النظام:* واجهة الويب ومحرك التنبيهات يعملان بكفاءة تامة.")
     st.session_state["alert_sent"] = True
 
 # --- Streamlit Dashboard Interface ---
 st.set_page_config(page_title="JALWE AI TRADER V4", layout="wide")
 
-st.title("🏛️ JALWE AI TRADER V4 - Institutional Quantitative Dashboard")
+st.title("🏛️ JALWE AI TRADER V4 - لوحة تحكم كمية مؤسسية")
 st.markdown("---")
 
 # Sidebar for controls
-st.sidebar.header("Control Panel")
-mode = st.sidebar.selectbox("Operating Mode", ["Institutional Live", "Paper Trading", "Strategy Lab"])
+st.sidebar.header("لوحة التحكم")
+mode = st.sidebar.selectbox("وضع التشغيل", ["Institutional Live", "Paper Trading", "Strategy Lab"])
 
 # Main Dashboard Layout
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric(label="Portfolio Value", value="$104,580.00", delta="+2.4%")
+    st.metric(label="قيمة المحفظة", value="$104,580.00", delta="+2.4%")
 
 with col2:
-    st.metric(label="Macro Event Risk", value="NORMAL", delta="Stable")
+    st.metric(label="مخاطر الأحداث الكبرى", value="طبيعي", delta="مستقر")
 
 with col3:
-    st.metric(label="Active Strategies", value="4 Operational", delta="Optimal")
+    st.metric(label="الاستراتيجيات الفعالة", value="4 عمليات", delta="أفضل أداء")
 
-st.markdown("### 📊 Market Regime & Event Engine Status")
+st.markdown("### 📊 حالة نظام السوق ومحرك الأحداث")
 event_eng = EventEngine()
 event_status = event_eng.check_event_risk("PORTFOLIO")
 
-st.info(f"**Current Action Protocol:** {event_status['action']} \n\n**Reason:** {event_status['reason']}")
+st.info(f"**بروتوكول الإجراء الحالي:** {event_status['action']} \n\n**السبب:** {event_status['reason']}")
 
-if st.button("🚨 Trigger Manual Emergency Risk Alert"):
-    alert_msg = "🚨 *JALWE AI TRADER V4 - MANUAL EMERGENCY ALERT* 🚨\n\nCapital protection protocol triggered manually via Dashboard."
+if st.button("🚨 إرسال تنبيه طوارئ يدوي عبر تيليجرام"):
+    alert_msg = "🚨 *جالوه آي تريدر V4 - تنبيه طوارئ يدوي* 🚨\n\nتم تفعيل بروتوكول حماية رأس المال يدوياً عبر لوحة التحكم بنجاح يا بدر!"
     send_streamlit_telegram_alert(alert_msg)
-    st.success("Emergency alert dispatched successfully to Telegram!")
+    st.success("تم إرسال تنبيه الطوارئ بنجاح إلى تيليجرام!")
 
 st.markdown("---")
-st.caption("JALWE AI TRADER V4 • Institutional Grade Autonomous Systems")
+st.caption("JALWE AI TRADER V4 • أنظمة ذاتية مؤسسية متقدمة")
