@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 from event_engine import EventEngine
 
-TELEGRAM_BOT_TOKEN = "8830107385:AAEUAOf3lPFPX_dmLHrLc6RXKaFCNe9y9JA"
+TELEGRAM_BOT_TOKEN = "8830107385:AAFuIYgvlHjGC8EHe-JzcsLB-Z4S-jPTLE"
 TELEGRAM_CHAT_ID = "709594771"
 
 def send_streamlit_telegram_alert(message: str):
