@@ -1,52 +1,61 @@
 import streamlit as st
-import pandas as pd
+import time
+import requests
 from event_engine import EventEngine
 
+# --- Telegram Bot Direct Configuration ---
+TELEGRAM_BOT_TOKEN = "7917757905:AAEUw7U_X0w8gT91Z3f8xQ9"
+TELEGRAM_CHAT_ID = "6124128003"
+
+def send_streamlit_telegram_alert(message: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload, timeout=3)
+    except Exception as e:
+        print(f"Telegram error: {e}")
+
+# Trigger startup alert once when dashboard loads
+if "alert_sent" not in st.session_state:
+    send_streamlit_telegram_alert("🟢 *JALWE AI TRADER V4 - DASHBOARD ONLINE*\n\n🏛️ *System Status:* Web UI & Telegram Dispatcher Active.")
+    st.session_state["alert_sent"] = True
+
+# --- Streamlit Dashboard Interface ---
 st.set_page_config(page_title="JALWE AI TRADER V4", layout="wide")
 
-event_eng = EventEngine()
-
-st.markdown("# 🏛️ JALWE AI TRADER V4 - Institutional Quantitative Dashboard")
-st.markdown("Autonomous paper-trading ecosystem integrated with Options Intelligence, Strategy Lab, Learning Engine, Market Regime Detection & Macro Event Engine.")
-
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Account Balance", "$10,000.00")
-with col2:
-    st.metric("Market Regime", "BULL TREND")
-with col3:
-    st.metric("Risk Profile", "AGGRESSIVE GROWTH")
-with col4:
-    st.metric("V4 Architecture", "Fully Operational")
-
+st.title("🏛️ JALWE AI TRADER V4 - Institutional Quantitative Dashboard")
 st.markdown("---")
 
-st.markdown("### 🌐 Macroeconomic Event Risk & Catalyst Monitor (Event Engine)")
+# Sidebar for controls
+st.sidebar.header("Control Panel")
+mode = st.sidebar.selectbox("Operating Mode", ["Institutional Live", "Paper Trading", "Strategy Lab"])
+
+# Main Dashboard Layout
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(label="Portfolio Value", value="$104,580.00", delta="+2.4%")
+
+with col2:
+    st.metric(label="Macro Event Risk", value="NORMAL", delta="Stable")
+
+with col3:
+    st.metric(label="Active Strategies", value="4 Operational", delta="Optimal")
+
+st.markdown("### 📊 Market Regime & Event Engine Status")
+event_eng = EventEngine()
 event_status = event_eng.check_event_risk("PORTFOLIO")
 
-if event_status["event_risk"] == "HIGH":
-    st.error(f"⚠️ Event Risk: {event_status['event_risk']} — Action: {event_status['action']} ({event_status['reason']})")
-else:
-    st.success(f"✅ Event Risk: {event_status['event_risk']} — Action: {event_status['action']} ({event_status['reason']})")
+st.info(f"**Current Action Protocol:** {event_status['action']} \n\n**Reason:** {event_status['reason']}")
+
+if st.button("🚨 Trigger Manual Emergency Risk Alert"):
+    alert_msg = "🚨 *JALWE AI TRADER V4 - MANUAL EMERGENCY ALERT* 🚨\n\nCapital protection protocol triggered manually via Dashboard."
+    send_streamlit_telegram_alert(alert_msg)
+    st.success("Emergency alert dispatched successfully to Telegram!")
 
 st.markdown("---")
-
-st.markdown("### 📈 Institutional Portfolio Equity Curve")
-chart_data = pd.DataFrame({
-    'Time': ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00'],
-    'Equity ($)': [10000, 10100, 10080, 10300, 10500, 10800]
-})
-st.line_chart(chart_data.set_index('Time'))
-
-st.markdown("### ⚡ Options Flow & Multi-Model AI Evaluation")
-data = {
-    "Symbol": ["AAPL", "TSLA", "NVDA"],
-    "AI Score": [63.88, 49.9, 49.11],
-    "Sentiment": ["Neutral", "Bearish", "Bearish"],
-    "Option Quality": ["HIGH", "HIGH", "HIGH"],
-    "Vol/OI Ratio": [1.71, 1.71, 1.71],
-    "Action": ["TRADE", "TRADE", "TRADE"],
-    "Stop Loss": [171.5, 235.2, 617.4],
-    "Position Size": [5, 4, 1]
-}
-st.dataframe(pd.DataFrame(data), use_container_width=True)
+st.caption("JALWE AI TRADER V4 • Institutional Grade Autonomous Systems")
