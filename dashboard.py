@@ -54,4 +54,4 @@ data = {
     "Stop Loss": [171.5, 235.2, 617.4],
     "Position Size": [5, 4, 1]
 }
-st.dataframe(pd.DataFrame(data), use_container_width+True)
+st.dataframe(pd.DataFrame(data), use_container_width=True)
