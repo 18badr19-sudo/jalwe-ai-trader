@@ -3,9 +3,9 @@ import time
 import requests
 from event_engine import EventEngine
 
-# --- Telegram Bot Direct Configuration (Verified V3/V4 Bot Token) ---
+# --- Telegram Bot Direct Configuration (Verified Correct Credentials) ---
 TELEGRAM_BOT_TOKEN = "8830107385:AAEUAOf3lPFPX_dmLHrLc6RXKaFCNe9y9JA"
-TELEGRAM_CHAT_ID = "6124128003"
+TELEGRAM_CHAT_ID = "709594771"
 
 def send_streamlit_telegram_alert(message: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
