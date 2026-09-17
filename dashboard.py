@@ -3,8 +3,8 @@ import time
 import requests
 from event_engine import EventEngine
 
-# --- Telegram Bot Direct Configuration ---
-TELEGRAM_BOT_TOKEN = "7917757905:AAEUw7U_X0w8gT91Z3f8xQ9"
+# --- Telegram Bot Direct Configuration (Verified V3/V4 Bot Token) ---
+TELEGRAM_BOT_TOKEN = "8830107385:AAEUAOf3lPFPX_dmLHrLc6RXKaFCNe9y9JA"
 TELEGRAM_CHAT_ID = "6124128003"
 
 def send_streamlit_telegram_alert(message: str):
@@ -15,13 +15,14 @@ def send_streamlit_telegram_alert(message: str):
         "parse_mode": "Markdown"
     }
     try:
-        requests.post(url, json=payload, timeout=3)
+        response = requests.post(url, json=payload, timeout=5)
+        print(f"Telegram response: {response.status_code}")
     except Exception as e:
         print(f"Telegram error: {e}")
 
 # Trigger startup alert once when dashboard loads (in Arabic)
 if "alert_sent" not in st.session_state:
-    send_streamlit_telegram_alert("🟢 *نظام جالوه آي تريدر V4 - متصل الآن*\n\n🏛️ *حالة النظام:* واجهة الويب ومحرك التنبيهات يعملان بكفاءة تامة.")
+    send_streamlit_telegram_alert("🟢 *نظام جالوه آي تريدر V4 - متصل الآن*\n\n🏛️ *حالة النظام:* واجهة الويب ومحرك التنبيهات يعملان بكفاءة تامة يا بدر.")
     st.session_state["alert_sent"] = True
 
 # --- Streamlit Dashboard Interface ---
