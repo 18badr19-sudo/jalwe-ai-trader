@@ -2,8 +2,8 @@ import time
 import requests
 from event_engine import EventEngine
 
-# Direct configuration using your active verified Telegram credentials
-TELEGRAM_BOT_TOKEN = "7917757905:AAEUw7U_X0w8gT91Z3f8xQ9..."
+# Direct institutional configuration using your active verified Telegram credentials
+TELEGRAM_BOT_TOKEN = "7917757905:AAEUw7U_X0w8gT91Z3f8xQ9"
 TELEGRAM_CHAT_ID = "6124128003"
 
 def send_telegram_alert(message: str):
@@ -16,6 +16,7 @@ def send_telegram_alert(message: str):
     
     try:
         response = requests.post(url, json=payload, timeout=5)
+        print(f"Telegram API Response Status: {response.status_code}")
         return response.status_code == 200
     except Exception as e:
         print(f"Failed to send Telegram alert: {e}")
@@ -24,7 +25,7 @@ def send_telegram_alert(message: str):
 def run_jalwe_bot_loop():
     print("Jalwe AI Trader V4 Telegram Worker Active...")
     
-    # Send an immediate startup confirmation message to your active chat
+    # Send an immediate startup confirmation message to your active chat upon execution
     startup_msg = (
         f"🟢 *JALWE AI TRADER V4 - ONLINE*\n\n"
         f"🏛️ *System Status:* Institutional Engine Connected\n"
@@ -55,4 +56,5 @@ def run_jalwe_bot_loop():
             time.sleep(60)
 
 if __name__ == "__main__":
+    # Force immediate dispatch on script run
     run_jalwe_bot_loop()
