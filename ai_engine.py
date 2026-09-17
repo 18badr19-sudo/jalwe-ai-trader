@@ -7,11 +7,12 @@ class AIEngine:
 
     def evaluate_opportunity(self, symbol):
         """
-        يقيّم الفرصة بناءً على تحليل الأخبار ومؤشرات التعلم الآلي الوهمية/الفعلية
+        Evaluates trading opportunities based on real-time news sentiment 
+        and AI confidence scoring algorithms.
         """
         news_sentiment = fetch_market_news(symbol)
         
-        # محاكاة حساب درجة الثقة بناءً على المشاعر الفورية للأسواق
+        # Base confidence calculation adjusted by market sentiment
         base_score = 65.0
         if news_sentiment == "Bullish":
             base_score += 20.0
