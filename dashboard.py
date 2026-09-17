@@ -13,7 +13,6 @@ def send_streamlit_telegram_alert(message: str):
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        # سنقوم بإرجاع حالة الاستجابة والنص كاملاً لنعرف السبب
         return response.status_code, response.text
     except Exception as e:
         return 500, str(e)
@@ -47,8 +46,7 @@ if st.button("🚨 إرسال تنبيه طوارئ يدوي عبر تيليجر
     if status_code == 200:
         st.success("تم إرسال التنبيه إلى تيليجرام بنجاح!")
     else:
-        # سيطبع لنا السبب الحقيقي القادم من تيليجرام حرفياً على الشاشة
         st.error(f"خطأ من تيليجرام (الكود {status_code}): {response_text}")
 
-st.markdown---()
+st.markdown("---")
 st.caption("JALWE AI TRADER V4 • أنظمة ذاتية مؤسسية متقدمة")
