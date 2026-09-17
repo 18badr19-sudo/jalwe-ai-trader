@@ -4,14 +4,11 @@ from event_engine import EventEngine
 
 st.set_page_config(page_title="JALWE AI TRADER V4", layout="wide")
 
-# Initialize Engines
 event_eng = EventEngine()
 
-# Main Header
 st.markdown("# 🏛️ JALWE AI TRADER V4 - Institutional Quantitative Dashboard")
 st.markdown("Autonomous paper-trading ecosystem integrated with Options Intelligence, Strategy Lab, Learning Engine, Market Regime Detection & Macro Event Engine.")
 
-# Top Status Metrics Bar
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Account Balance", "$10,000.00")
@@ -24,7 +21,6 @@ with col4:
 
 st.markdown("---")
 
-# Macro Event Risk Section (Event Engine)
 st.markdown("### 🌐 Macroeconomic Event Risk & Catalyst Monitor (Event Engine)")
 event_status = event_eng.check_event_risk("PORTFOLIO")
 
@@ -35,7 +31,6 @@ else:
 
 st.markdown("---")
 
-# Portfolio Equity Curve
 st.markdown("### 📈 Institutional Portfolio Equity Curve")
 chart_data = pd.DataFrame({
     'Time': ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00'],
