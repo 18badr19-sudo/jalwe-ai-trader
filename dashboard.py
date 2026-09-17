@@ -1,9 +1,7 @@
 import streamlit as st
-import time
 import requests
 from event_engine import EventEngine
 
-# --- Telegram Bot Direct Configuration (Verified Correct Credentials) ---
 TELEGRAM_BOT_TOKEN = "8830107385:AAEUAOf3lPFPX_dmLHrLc6RXKaFCNe9y9JA"
 TELEGRAM_CHAT_ID = "709594771"
 
@@ -14,36 +12,27 @@ def send_streamlit_telegram_alert(message: str):
         "text": message
     }
     try:
-        response = requests.post(url, json=payload, timeout=5)
-        print(f"Telegram response status: {response.status_code}")
-        print(f"Telegram response body: {response.text}")
+        response = requests.post(url, json=payload, timeout=10)
+        print(f"STATUS CODE: {response.status_code}")
+        print(f"RESPONSE TEXT: {response.text}")
+        return response.status_code == 200
     except Exception as e:
-        print(f"Telegram error: {e}")
+        print(f"ERROR: {e}")
+        return False
 
-# Trigger startup alert once when dashboard loads (in Arabic)
-if "alert_sent" not in st.session_state:
-    send_streamlit_telegram_alert("🟢 نظام جالوه آي تريدر V4 - متصل الآن\n\nحالة النظام: واجهة الويب ومحرك التنبيهات يعملان بكفاءة تامة يا بدر.")
-    st.session_state["alert_sent"] = True
-
-# --- Streamlit Dashboard Interface ---
 st.set_page_config(page_title="JALWE AI TRADER V4", layout="wide")
 
 st.title("🏛️ JALWE AI TRADER V4 - لوحة تحكم كمية مؤسسية")
 st.markdown("---")
 
-# Sidebar for controls
 st.sidebar.header("لوحة التحكم")
 mode = st.sidebar.selectbox("وضع التشغيل", ["Institutional Live", "Paper Trading", "Strategy Lab"])
 
-# Main Dashboard Layout
 col1, col2, col3 = st.columns(3)
-
 with col1:
     st.metric(label="قيمة المحفظة", value="$104,580.00", delta="+2.4%")
-
 with col2:
     st.metric(label="مخاطر الأحداث الكبرى", value="طبيعي", delta="مستقر")
-
 with col3:
     st.metric(label="الاستراتيجيات الفعالة", value="4 عمليات", delta="أفضل أداء")
 
@@ -55,8 +44,11 @@ st.info(f"**بروتوكول الإجراء الحالي:** {event_status['actio
 
 if st.button("🚨 إرسال تنبيه طوارئ يدوي عبر تيليجرام"):
     alert_msg = "🚨 جالوه آي تريدر V4 - تنبيه طوارئ يدوي 🚨\n\nتم تفعيل بروتوكول حماية رأس المال يدوياً عبر لوحة التحكم بنجاح يا بدر!"
-    send_streamlit_telegram_alert(alert_msg)
-    st.success("تم إرسال تنبيه الطوارئ بنجاح إلى تيليجرام!")
+    success = send_streamlit_telegram_alert(alert_msg)
+    if success:
+        st.success("تم إرسال التنبيه إلى تيليجرام بنجاح ورسعت الاستجابة!")
+    else:
+        st.error("فشل إرسال التنبيه، تحقق من سجلات Railway Logs لمعرفة السبب.")
 
 st.markdown("---")
 st.caption("JALWE AI TRADER V4 • أنظمة ذاتية مؤسسية متقدمة")
