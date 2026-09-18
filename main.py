@@ -16,15 +16,17 @@ APCA_API_KEY_ID = os.getenv("APCA_API_KEY_ID")
 APCA_API_SECRET_KEY = os.getenv("APCA_API_SECRET_KEY")
 APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
 
-# ضبط البوت بدون خيوط متداخلة لمنع خطأ 409
+# إعداد البوت بدون خيوط متداخلة
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
-alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
+# إجبار تليجرام على تنظيف وإلغاء أي اتصال معلق لتفادي خطأ 409 نهائياً
 try:
     bot.remove_webhook()
     time.sleep(2)
 except Exception:
     pass
+
+alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
 bot_running = True
 last_error = "النظام يعمل بكامل ميزات الذكاء الاصطناعي والحماية 🚀"
@@ -78,7 +80,7 @@ def send_status_report(chat_id):
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ خطأ في التقرير: {e}", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"⚠️ خطأ في التقرير: {e}", parse_mode="Markdown", reply_markup=get_control_keyboard())
 
 @bot.message_handler(func=lambda message: True)
 def handle_control_buttons(message):
@@ -117,24 +119,20 @@ def ml_predict_signal(symbol):
             return 0
         df = barset.copy()
         
-        # استخراج العوائد والمتوسطات
         df['returns'] = df['close'].pct_change()
         df['sma_5'] = df['close'].rolling(5).mean()
         df['sma_20'] = df['close'].rolling(20).mean()
         
-        # حساب مؤشر القوة النسبية (RSI)
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         df['rsi'] = 100 - (100 / (1 + rs))
         
-        # حساب نطاقات بولنجر (Bollinger Bands)
         df['std'] = df['close'].rolling(20).std()
         df['upper_band'] = df['sma_20'] + (df['std'] * 2)
         df['lower_band'] = df['sma_20'] - (df['std'] * 2)
         
-        # الهدف للذكاء الاصطناعي (هل السعر بيرتفع في اليوم التالي؟)
         df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
         df = df.dropna()
         
@@ -161,7 +159,6 @@ def ai_learning_trading_cycle():
         cash = float(account.cash)
         last_error = "النظام يعمل بذكاء اصطناعي وحماية تامة ✅"
         
-        # فحص الصفقات المفتوحة لتطبيق وقف الخسارة وجني الأرباح
         positions = alpaca.list_positions()
         for p in positions:
             symbol = p.symbol
@@ -178,7 +175,6 @@ def ai_learning_trading_cycle():
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, f"🛡️🛑 **تفعيل وقف الخسارة (Stop Loss)**\n📌 السهم: `{symbol}`\n📉 الخسارة: `{pnl_pct*100:.2f}%`", parse_mode="Markdown")
 
-        # فحص السوق عبر عقل الذكاء الاصطناعي والمؤشرات المتقدمة
         watchlist = advanced_market_scanner()
         active_symbols = [p.symbol for p in positions]
         
@@ -195,13 +191,11 @@ def ai_learning_trading_cycle():
     except Exception as e:
         last_error = str(e)
 
-# جدول الفحص كل 20 دقيقة
 schedule.every(20).minutes.do(ai_learning_trading_cycle)
 
 if __name__ == "__main__":
     print("INFO - JALWE AI Ultimate Edition with full ML is running...")
     
-    # خيط خلفي لتنفيذ الجدول الزمني بانتظام
     import threading
     def schedule_thread():
         while True:
@@ -212,7 +206,6 @@ if __name__ == "__main__":
     t_schedule.daemon = True
     t_schedule.start()
 
-    # تشغيل البوت الأساسي باستقرار تام
     while True:
         try:
             bot.infinity_polling(timeout=10, long_polling_timeout=5)
