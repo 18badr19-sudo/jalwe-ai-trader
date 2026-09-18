@@ -1,8 +1,5 @@
-Alpaca-trade-api
+pyTelegramBotAPI
 requests
 schedule
-apscheduler
 pandas
-streamlit
-google-generativeai
-openai
+alpaca-py
