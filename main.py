@@ -35,7 +35,8 @@ def get_control_keyboard():
     btn_start = KeyboardButton("🟢 تشغيل البوت المتعلم")
     btn_stop = KeyboardButton("🛑 إيقاف البوت")
     btn_status = KeyboardButton("🔍 فحص نموذج التعلم الآلي")
-    markup.add(btn_start, btn_stop, btn_status)
+    btn_prices = KeyboardButton("📊 أسعار الأسهم") # الزر الجديد هنا
+    markup.add(btn_start, btn_stop, btn_status, btn_prices)
     return markup
 
 def send_status_report(chat_id):
@@ -72,6 +73,21 @@ def handle_control_buttons(message):
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", parse_mode="Markdown", reply_markup=get_control_keyboard())
     elif "فحص نموذج التعلم الآلي" in text:
         send_status_report(chat_id)
+    elif "أسعار الأسهم" in text:
+        bot.send_message(chat_id, "⏳ جاري جلب الأسعار المباشرة من السوق...", reply_markup=get_control_keyboard())
+        try:
+            prices_msg = "📊 **أسعار الأسهم الحالية (مباشر):**\n\n"
+            for symbol in WATCHLIST:
+                # جلب آخر سعر للسهم في هذه الدقيقة
+                bar = alpaca.get_bars(symbol, tradeapi.TimeFrame.Minute, limit=1).df
+                if not bar.empty:
+                    current_price = bar['close'].iloc[-1]
+                    prices_msg += f"• `{symbol}` : `${current_price:.2f}`\n"
+                else:
+                    prices_msg += f"• `{symbol}` : `غير متاح حالياً`\n"
+            bot.send_message(chat_id, prices_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ خطأ في جلب الأسعار: {e}", reply_markup=get_control_keyboard())
     else:
         bot.send_message(chat_id, "استخدم الأزرار أدناه للتحكم:", reply_markup=get_control_keyboard())
 
@@ -133,7 +149,6 @@ if __name__ == "__main__":
         while True:
             try:
                 print("Starting Telegram polling...")
-                # التعديل هنا: إضافة skip_pending=True لمنع خطأ 409
                 bot.infinity_polling(skip_pending=True)
             except Exception as ex:
                 print(f"Polling restart due to: {ex}")
