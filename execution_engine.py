@@ -1,52 +1,69 @@
-"""
-JALWE AI TRADER V3
-Execution Engine Module
-"""
+import os
+import requests
 import logging
-from telegram_notifier import TelegramNotifier
+from telegram_notifier import send_telegram_message
 
 class ExecutionEngine:
-    def __init__(self, database=None, db=None, **kwargs):
-        self.db = database if database is not None else db
-        self.notifier = TelegramNotifier()
-        logging.info("ExecutionEngine initialized successfully.")
-
-    def execute_trade(self, opportunity):
-        """Execute a trade based on the given opportunity or risk assessment object/dict."""
-        # Support both dictionary and object attributes for maximum compatibility
-        if isinstance(opportunity, dict):
-            symbol = opportunity.get("symbol", "UNKNOWN")
-            action = opportunity.get("action", "BUY")
-            price = opportunity.get("price", 0.0)
-        else:
-            symbol = getattr(opportunity, "symbol", getattr(opportunity, "ticker", "UNKNOWN"))
-            action = getattr(opportunity, "action", getattr(opportunity, "side", "BUY"))
-            price = getattr(opportunity, "price", getattr(opportunity, "entry_price", 0.0))
+    def __init__(self):
+        self.api_key = os.getenv("APCA_API_KEY_ID")
+        self.api_secret = os.getenv("APCA_API_SECRET_KEY")
+        self.base_url = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
         
-        logging.info(f"Executing trade for {symbol}: {action} at {price}")
-        
-        # Log trade to database if available
-        if self.db and hasattr(self.db, "log_trade"):
-            try:
-                self.db.log_trade(
-                    symbol=symbol,
-                    side=action,
-                    qty=1.0,
-                    entry_price=price,
-                    stop_loss=price * 0.98,
-                    take_profit=price * 1.05,
-                    status="OPEN"
-                )
-            except Exception as e:
-                logging.error(f"Failed to log trade to database: {e}")
-                
-        # Send notification
-        message = f"🚨 *JALWE TRADER ALERT*\nExecuted {action} for *{symbol}* at ${price}"
-        self.notifier.send_message(message)
+        self.headers = {
+            "APCA-API-KEY-ID": self.api_key,
+            "APCA-API-SECRET-KEY": self.api_secret,
+            "Content-Type": "application/json"
+        }
 
-# دالة توافقية لحل خطأ الاستيراد في main.py
-def execute_trade_order(symbol: str, qty: float, side: str, order_type: str = "market"):
+    def execute_order(self, symbol: str, qty: int, side: str, order_type: str = "market", time_in_force: str = "gtc"):
+        """
+        Submits a real paper trading order to Alpaca API and sends a Telegram notification.
+        """
+        if qty <= 0:
+            logging.warning(f"Invalid quantity {qty} for {symbol}. Order skipped.")
+            return None
+
+        url = f"{self.base_url}/v2/orders"
+        payload = {
+            "symbol": symbol,
+            "qty": str(qty),
+            "side": side.lower(),
+            "type": order_type.lower(),
+            "time_in_force": time_in_force.lower()
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code == 201:
+                order_data = response.json()
+                msg = f"🚨 *JALWE AI TRADER EXECUTION*\n\n✅ Successfully placed *{side.upper()}* order for `{qty}` shares of `{symbol}`.\n📊 Order ID: `{order_data.get('id')}`"
+                logging.info(f"Order executed successfully for {symbol}: {side} {qty} shares.")
+                send_telegram_message(msg)
+                return order_data
+            else:
+                error_msg = f"Failed to execute order for {symbol}: {response.text}"
+                logging.error(error_msg)
+                send_telegram_message(f"⚠️ *Execution Error*\n\n`{error_msg}`")
+                return None
+        except Exception as e:
+            logging.error(f"Exception during order execution for {symbol}: {e}")
+            return None
+
+    def get_account_balance(self) -> float:
+        """
+        Fetches the current paper account cash balance from Alpaca.
+        """
+        url = f"{self.base_url}/v2/account"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                account_data = response.json()
+                return float(account_data.get("cash", 100.00))
+        except Exception as e:
+            logging.warning(f"Could not fetch account balance: {e}. Defaulting to $100.00.")
+        return 100.00
+
+# Compatibility helper function
+def place_trade_order(symbol: str, qty: int, side: str):
     engine = ExecutionEngine()
-    opportunity = {"symbol": symbol, "action": side, "price": 0.0}
-    engine.execute_trade(opportunity)
-    return {"status": "success", "symbol": symbol, "qty": qty, "side": side}
+    return engine.execute_order(symbol, qty, side)
