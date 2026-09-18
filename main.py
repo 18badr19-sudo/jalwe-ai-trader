@@ -128,11 +128,13 @@ schedule.every(20).minutes.do(ai_learning_trading_cycle)
 if __name__ == "__main__":
     print("INFO - JALWE ML Trader Online 24/7")
     import threading
+    
     def polling_thread():
         while True:
             try:
-                # إيقاف مؤقت لمنع التضارب وضمان عدم تكرار الاتصالات الفورية
-                bot.infinity_polling(none_stop=True, interval=2, timeout=20, long_polling_timeout=20)
+                print("Starting Telegram polling...")
+                # التعديل هنا: إضافة skip_pending=True لمنع خطأ 409
+                bot.infinity_polling(skip_pending=True)
             except Exception as ex:
                 print(f"Polling restart due to: {ex}")
                 time.sleep(5)
