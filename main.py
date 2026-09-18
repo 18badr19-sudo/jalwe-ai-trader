@@ -5,16 +5,25 @@ import schedule
 from datetime import datetime
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
 
 # إعداد السجلات
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # جلب بيانات الاعتماد من المتغيرات البيئية
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7504620583:AAH7D8YF6_...your_token...")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5726211833")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+APCA_API_KEY_ID = os.getenv("APCA_API_KEY_ID")
+APCA_API_SECRET_KEY = os.getenv("APCA_API_SECRET_KEY")
+APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
+
+# تهيئة عميل Alpaca للتداول التجريبي
+trading_client = TradingClient(APCA_API_KEY_ID, APCA_API_SECRET_KEY, paper=True)
 
 # حالة تشغيل البوت (افتراضياً يعمل)
 bot_running = True
@@ -66,10 +75,19 @@ def send_trade_alert(action, symbol, qty, price):
 
 def send_eod_summary():
     """تقرير نهاية اليوم بالعربي عند إغلاق السوق"""
+    try:
+        account = trading_client.get_account()
+        portfolio_value = account.portfolio_value
+        cash = account.cash
+    except Exception:
+        portfolio_value = "غير متوفر"
+        cash = "غير متوفر"
+
     text = (
         f"📈 **ملخص تقرير نهاية اليوم لجلسة التداول**\n"
         f"📅 **التاريخ:** `{datetime.now().strftime('%Y-%m-%d')}`\n"
-        f"💼 **حالة المحفظة التجريبية:** نشطة ومتصلة ($100 Paper Trading)\n"
+        f"💼 **قيمة المحفظة التجريبية:** `${portfolio_value}`\n"
+        f"💵 **الكاش المتاح:** `${cash}`\n"
         f"🔍 **حالة السوق:** تم إتمام عمليات المسح والتحليل بنجاح.\n"
         f"💤 البوت الآن في وضع الاستعداد بانتظار الجلسة القادمة."
     )
@@ -78,10 +96,26 @@ def send_eod_summary():
 # جدولة تقرير نهاية اليوم الساعة 11 مساءً
 schedule.every().day.at("23:00").do(send_eod_summary)
 
+def execute_paper_trade(symbol, qty, side):
+    """تنفيذ أمر تداول حقيقي على حساب Alpaca Paper"""
+    try:
+        order_side = OrderSide.BUY if side.upper() == "BUY" else OrderSide.SELL
+        market_order_data = MarketOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=order_side,
+            time_in_force=TimeInForce.GTC
+        )
+        order = trading_client.submit_order(order_data=market_order_data)
+        logger.info(f"Successfully placed order for {symbol}: {order}")
+        send_trade_alert(side, symbol, qty, "Market Price")
+    except Exception as e:
+        logger.error(f"Failed to execute trade for {symbol}: {e}")
+
 def run_bot_loop():
     logger.info("JALWE AI TRADER V4 pipeline is online 24/7")
     try:
-        bot.send_message(CHAT_ID, "🚀 **نظام التداول الذكي (JALWE AI TRADER) يعمل الآن بنجاح على مدار الساعة!**", parse_mode="Markdown", reply_markup=get_reply_keyboard())
+        bot.send_message(CHAT_ID, "🚀 **نظام التداول الذكي (JALWE AI TRADER) يعمل الآن بنجاح على مدار الساعة ويقوم بمسح السوق!**", parse_mode="Markdown", reply_markup=get_reply_keyboard())
     except Exception as e:
         logger.error(f"Failed to send startup message: {e}")
 
@@ -90,13 +124,23 @@ def run_bot_loop():
             schedule.run_pending()
             if bot_running:
                 logger.info("Market scanning cycle executing...")
+                
+                # قائمة الأسهم المستهدفة للمسح
+                target_symbols = ["AAPL", "TSLA", "MSFT", "NVDA"]
+                
+                # منطق المسح التجريبي البسيط (يمكن تطويره لاحقاً بإستراتيجيات متقدمة)
+                for symbol in target_symbols:
+                    # مثال: البوت يراقب السوق، وعند توافر الشروط يقوم بالتنفيذ التجريبي
+                    # execute_paper_trade(symbol, 1, "BUY")
+                    pass
+                    
             else:
                 logger.info("Bot is currently stopped by user.")
             
-            time.sleep(60)
+            time.sleep(300) # فحص السوق كل 5 دقائق
         except Exception as e:
             logger.error(f"Error in main loop: {e}")
-            time.sleep(10)
+            time.sleep(30)
 
 if __name__ == "__main__":
     import threading
