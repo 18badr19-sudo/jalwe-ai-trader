@@ -1,10 +1,5 @@
-alpaca-py
-pandas
-numpy
-streamlit
+alpaca-trade-api
 requests
-python-telegram-bot
-python-dotenv
-plotly
 apscheduler
-ccxt
+pandas
+streamlit
