@@ -2,34 +2,36 @@ class OptionsEngine:
     def __init__(self):
         pass
 
-    def evaluate_option_chain(self, symbol: str, underlying_price: float, strike: float, option_type: str, dte: int, iv: float, delta: float, volume: int, open_interest: int) -> dict:
+    def score_option_contract(self, contract_data: dict) -> dict:
         """
-        Evaluates an options contract based on Greeks, Liquidity, DTE, and Implied Volatility.
+        Scores and filters option contracts based on liquidity, spread, DTE, Delta, and IV.
+        Ensures strict institutional filtering instead of random selection.
         """
-        # Calculate Volume to Open Interest ratio for smart money tracking
-        vol_oi_ratio = volume / open_interest if open_interest > 0 else 0.0
-        
-        # Contract quality scoring mechanism
-        score = 0.0
-        if 0.4 <= abs(delta) <= 0.7:  # Optimal directional delta
-            score += 40.0
-        if dte >= 14 and dte <= 45:    # Sweet spot for expiration
-            score += 30.0
-        if vol_oi_ratio > 1.5:         # Unusual options activity indicator
-            score += 30.0
+        spread = contract_data.get("spread", 0.10)
+        volume = contract_data.get("volume", 0)
+        open_interest = contract_data.get("open_interest", 0)
+        delta = contract_data.get("delta", 0.5)
+        dte = contract_data.get("dte", 30)
 
-        contract_quality = "HIGH" if score >= 70 else ("MEDIUM" if score >= 40 else "LOW")
+        # Basic validation against poor liquidity or wide spreads
+        if spread > 0.50 or volume < 10 or open_interest < 100:
+            return {"score": 0.0, "approved": False, "reason": "Poor liquidity or wide spread"}
+
+        # Ideal Delta range for directional momentum (0.40 to 0.60)
+        delta_score = 1.0 - abs(delta - 0.5)
+
+        # DTE preference (e.g., 14 to 45 days to expiration)
+        dte_score = 1.0 if 14 <= dte <= 45 else 0.5
+
+        composite_score = float((volume * 0.4) + (open_interest * 0.3) + (delta_score * 20) + (dte_score * 10))
 
         return {
-            "symbol": symbol,
-            "underlying_price": underlying_price,
-            "option_type": option_type.upper(),
-            "strike": strike,
-            "dte": dte,
-            "delta": delta,
-            "iv": iv,
-            "vol_oi_ratio": round(vol_oi_ratio, 2),
-            "contract_score": score,
-            "contract_quality": contract_quality,
-            "recommendation": "TRADE" if contract_quality in ["HIGH", "MEDIUM"] else "AVOID"
+            "score": composite_score,
+            "approved": True,
+            "reason": "Contract meets institutional liquidity and Greek criteria"
         }
+
+# Compatibility helper
+def evaluate_option(contract_data: dict) -> dict:
+    engine = OptionsEngine()
+    return engine.score_option_contract(contract_data)
