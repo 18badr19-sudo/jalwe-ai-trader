@@ -1,27 +1,43 @@
+import pandas as pd
 import logging
 
 class RiskManager:
-    def __init__(self, max_loss_percentage=2.0, max_position_size=100.0):
-        self.max_loss_percentage = max_loss_percentage
+    def __init__(self, max_portfolio_risk: float = 0.05, max_position_size: float = 20.0):
+        """
+        Initializes risk management parameters for $100 paper trading budget.
+        - max_portfolio_risk: Maximum allowed risk per trade (e.g., 5%)
+        - max_position_size: Maximum dollar amount allocated per single trade ($20)
+        """
+        self.max_portfolio_risk = max_portfolio_risk
         self.max_position_size = max_position_size
+
+    def calculate_position_shares(self, current_price: float, account_balance: float = 100.0) -> int:
+        """
+        Calculates how many shares to buy based on the $100 balance and position limit.
+        """
+        if current_price <= 0:
+            return 0
         
-    def validate_trade(self, symbol: str, price: float, qty: int) -> bool:
+        # Allocate a safe fraction of the balance (e.g., max $20 per position)
+        allocated_capital = min(self.max_position_size, account_balance * 0.5)
+        shares = int(allocated_capital / current_price)
+        
+        return max(shares, 0)
+
+    def validate_trade_risk(self, symbol: str, signal: str, current_price: float, account_balance: float) -> bool:
         """
-        Validate if the trade order size and cost comply with risk management limits.
+        Validates whether a trade is safe to execute based on current account balance and risk rules.
         """
-        total_cost = price * qty
-        if total_cost > self.max_position_size:
-            logging.warning(f"⚠️ Trade rejected for {symbol}: Total cost (${total_cost}) exceeds max position limit (${self.max_position_size}).")
+        if account_balance <= 5.0:
+            logging.warning("Account balance too low for safe trading.")
             return False
             
-        logging.info(f"✅ Trade for {symbol} passed risk management validation.")
+        if signal not in ["BUY", "SELL"]:
+            return False
+            
         return True
 
-    def calculate_stop_loss_and_take_profit(self, entry_price: float):
-        """
-        Calculate stop loss and take profit prices based on the entry price.
-        """
-        stop_loss = entry_price * (1 - (self.max_loss_percentage / 100))
-        take_profit = entry_price * (1 + (self.max_loss_percentage * 2 / 100))
-        
-        return round(stop_loss, 2), round(take_profit, 2)
+# Compatibility helper function
+def check_risk_limits(symbol: str, signal: str, price: float, balance: float = 100.0) -> bool:
+    rm = RiskManager()
+    return rm.validate_trade_risk(symbol, signal, price, balance)
