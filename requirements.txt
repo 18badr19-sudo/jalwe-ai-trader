@@ -2,4 +2,4 @@ pyTelegramBotAPI
 requests
 schedule
 pandas
-alpaca-py
+alpaca-trade-api
