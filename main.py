@@ -19,7 +19,7 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
-# إيقاف أي ويب هوك أو جلسة سابقة لمنع تعارض 409
+# إيقاف أي جلسة سابقة لمنع خطأ التعارض 409
 try:
     bot.remove_webhook()
     time.sleep(1)
@@ -27,11 +27,10 @@ except Exception:
     pass
 
 bot_running = True
-last_error = "النظام يعمل بكفاءة مع إدارة المخاطر الآلية 🛡️🧠"
+last_error = "النظام مستقر ويعمل بدون خيوط متداخلة ✅"
 
-# إعدادات نسبة جني الأرباح ووقف الخسارة
-TAKE_PROFIT_PCT = 0.03  # جني الأرباح عند تحقيق 3% ربح
-STOP_LOSS_PCT = 0.02    # وقف الخسارة عند بلوغ 2% خسارة
+TAKE_PROFIT_PCT = 0.03  # جني الأرباح 3%
+STOP_LOSS_PCT = 0.02    # وقف الخسارة 2%
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -42,7 +41,7 @@ def get_control_keyboard():
     markup.add(btn_start, btn_stop, btn_status, btn_prices)
     return markup
 
-# ==================== 1. رادار السيولة المفاجئة (Market Scanner) ====================
+# ==================== 1. رادار السيولة المفاجئة ====================
 def liquidity_radar_scanner():
     try:
         assets = alpaca.list_assets(status='active', asset_class='us_equity')
@@ -52,7 +51,7 @@ def liquidity_radar_scanner():
         ]
         
         import random
-        sample_symbols = random.sample(tradable_symbols, min(20, len(tradable_symbols)))
+        sample_symbols = random.sample(tradable_symbols, min(15, len(tradable_symbols)))
         
         hot_stocks = []
         for symbol in sample_symbols:
@@ -66,14 +65,10 @@ def liquidity_radar_scanner():
             except Exception:
                 continue
                 
-        if hot_stocks:
-            return hot_stocks[:6]
-        else:
-            return ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN"]
-            
+        return hot_stocks[:5] if hot_stocks else ["AAPL", "TSLA", "MSFT", "NVDA"]
     except Exception as e:
-        print(f"Error in liquidity radar: {e}")
-        return ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN"]
+        print(f"Error in radar: {e}")
+        return ["AAPL", "TSLA", "MSFT"]
 
 def send_status_report(chat_id):
     global bot_running, last_error
@@ -81,20 +76,19 @@ def send_status_report(chat_id):
         account = alpaca.get_account()
         equity = float(account.equity)
         cash = float(account.cash)
-        state_text = "🟢 النظام نشط (الرادار + الذكاء + إدارة المخاطر)" if bot_running else "🛑 متوقف مؤقتاً"
+        state_text = "🟢 النظام نشط" if bot_running else "🛑 متوقف"
         
         report = (
-            f"🛡️ **تقرير نظام الحماية وإدارة المخاطر - JALWE AI**\n\n"
-            f"• **حالة النظام:** {state_text}\n"
+            f"🛡️ **تقرير نظام JALWE AI**\n\n"
+            f"• **الحالة:** {state_text}\n"
             f"• **إجمالي المحفظة:** `${equity:.2f}`\n"
-            f"• **السيولة المتاحة:** `${cash:.2f}`\n"
-            f"• **جني الأرباح (Take Profit):** `+{TAKE_PROFIT_PCT*100}%`\n"
-            f"• **وقف الخسارة (Stop Loss):** `-{STOP_LOSS_PCT*100}%`\n"
-            f"• **سجل الحالة:**\n`{last_error}`"
+            f"• **الكاش المتاح:** `${cash:.2f}`\n"
+            f"• **جني الأرباح:** `+{TAKE_PROFIT_PCT*100}%` | **وقف الخسارة:** `-{STOP_LOSS_PCT*100}%`\n"
+            f"• **الحالة:** `{last_error}`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ خطأ: {e}", parse_mode="Markdown", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"⚠️ خطأ: {e}", reply_markup=get_control_keyboard())
 
 @bot.message_handler(func=lambda message: True)
 def handle_control_buttons(message):
@@ -104,35 +98,32 @@ def handle_control_buttons(message):
 
     if "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل البوت بالكامل (الرادار + الذكاء الاصطناعي + حماية المخاطر).**", parse_mode="Markdown", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل البوت بنجاح.**", reply_markup=get_control_keyboard())
     elif "إيقاف البوت" in text:
         bot_running = False
-        bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", parse_mode="Markdown", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
     elif "فحص نموذج التعلم الآلي" in text:
         send_status_report(chat_id)
     elif "أسعار الأسهم" in text:
-        bot.send_message(chat_id, "⏳ جاري فحص الأسعار مع رادار السيولة...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "⏳ جاري الفحص...", reply_markup=get_control_keyboard())
         try:
-            active_watchlist = liquidity_radar_scanner()
-            prices_msg = "📊 **أسعار الأسهم المرصودة (مباشر):**\n\n"
-            for symbol in active_watchlist[:6]:
-                bar = alpaca.get_bars(symbol, tradeapi.TimeFrame.Minute, limit=1).df
+            watchlist = liquidity_radar_scanner()
+            msg = "📊 **الأسهم المرصودة:**\n\n"
+            for s in watchlist:
+                bar = alpaca.get_bars(s, tradeapi.TimeFrame.Minute, limit=1).df
                 if not bar.empty:
-                    current_price = bar['close'].iloc[-1]
-                    prices_msg += f"• `{symbol}` : `${current_price:.2f}` 🛡️\n"
-                else:
-                    prices_msg += f"• `{symbol}` : `غير متاح`\n"
-            bot.send_message(chat_id, prices_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+                    msg += f"• `{s}` : `${bar['close'].iloc[-1]:.2f}`\n"
+            bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ خطأ في جلب الأسعار: {e}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {e}", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "استخدم الأزرار أدناه للتحكم:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "اختر من الأزرار:", reply_markup=get_control_keyboard())
 
-# ==================== 2. عقل التحليل والقرار (Random Forest) ====================
+# ==================== 2. الذكاء الاصطناعي والتداول ====================
 def ml_predict_signal(symbol):
     try:
-        barset = alpaca.get_bars(symbol, tradeapi.TimeFrame.Day, limit=60).df
-        if barset.empty or len(barset) < 30:
+        barset = alpaca.get_bars(symbol, tradeapi.TimeFrame.Day, limit=50).df
+        if barset.empty or len(barset) < 25:
             return 0
         df = barset.copy()
         df['returns'] = df['close'].pct_change()
@@ -145,17 +136,14 @@ def ml_predict_signal(symbol):
         df['rsi'] = 100 - (100 / (1 + rs))
         df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
         df = df.dropna()
-        if len(df) < 15:
+        if len(df) < 10:
             return 0
-        features = ['returns', 'sma_5', 'sma_20', 'rsi']
-        model = RandomForestClassifier(n_estimators=50, random_state=42)
-        model.fit(df[features], df['target'])
-        return model.predict(df[features].iloc[[-1]])[0]
-    except Exception as e:
-        print(f"Error in ML prediction for {symbol}: {e}")
+        model = RandomForestClassifier(n_estimators=30, random_state=42)
+        model.fit(df[['returns', 'sma_5', 'sma_20', 'rsi']], df['target'])
+        return model.predict(df[['returns', 'sma_5', 'sma_20', 'rsi']].iloc[[-1]])[0]
+    except Exception:
         return 0
 
-# ==================== 3. دورة الفحص وإدارة المخاطر والتداول ====================
 def ai_learning_trading_cycle():
     global bot_running, last_error
     if not bot_running:
@@ -163,61 +151,38 @@ def ai_learning_trading_cycle():
     try:
         account = alpaca.get_account()
         cash = float(account.cash)
-        last_error = "النظام يعمل بكفاءة مع المراقبة الآلية للحماية ✅"
         
         positions = alpaca.list_positions()
         for p in positions:
-            symbol = p.symbol
-            avg_entry_price = float(p.avg_entry_price)
-            current_price = float(p.current_price)
-            pnl_pct = (current_price - avg_entry_price) / avg_entry_price
-            
-            if pnl_pct >= TAKE_PROFIT_PCT:
-                alpaca.close_position(symbol)
+            pnl_pct = (float(p.current_price) - float(p.avg_entry_price)) / float(p.avg_entry_price)
+            if pnl_pct >= TAKE_PROFIT_PCT or pnl_pct <= -STOP_LOSS_PCT:
+                alpaca.close_position(p.symbol)
                 if TELEGRAM_CHAT_ID:
-                    bot.send_message(TELEGRAM_CHAT_ID, f"🎯💰 **تم جني الأرباح بنجاح (Take Profit)**\n📌 السهم: `{symbol}`\n📈 نسبة الربح: `+{pnl_pct*100:.2f}%`", parse_mode="Markdown", reply_markup=get_control_keyboard())
-            elif pnl_pct <= -STOP_LOSS_PCT:
-                alpaca.close_position(symbol)
-                if TELEGRAM_CHAT_ID:
-                    bot.send_message(TELEGRAM_CHAT_ID, f"🛡️🛑 **تفعيل وقف الخسارة لحماية رأس المال (Stop Loss)**\n📌 السهم: `{symbol}`\n📉 نسبة الخسارة: `{pnl_pct*100:.2f}%`", parse_mode="Markdown", reply_markup=get_control_keyboard())
+                    bot.send_message(TELEGRAM_CHAT_ID, f"🛡️ تم إغلاق الصفقة `{p.symbol}` بنسبة ربح/خسارة: `{pnl_pct*100:.2f}%`", parse_mode="Markdown")
 
-        dynamic_watchlist = liquidity_radar_scanner()
+        watchlist = liquidity_radar_scanner()
         active_symbols = [p.symbol for p in positions]
         
-        for symbol in dynamic_watchlist:
-            prediction = ml_predict_signal(symbol)
-            if prediction == 1 and symbol not in active_symbols and cash > 20:
+        for symbol in watchlist:
+            if ml_predict_signal(symbol) == 1 and symbol not in active_symbols and cash > 20:
                 alpaca.submit_order(symbol=symbol, qty=1, side='buy', type='market', time_in_force='gtc')
                 if TELEGRAM_CHAT_ID:
-                    bot.send_message(TELEGRAM_CHAT_ID, f"🚨📊 **رادار السيولة (شراء جديد)**\n📌 السهم: `{symbol}`\n💡 دخول سيولة + تأكيد نموذج الذكاء الاصطناعي!", parse_mode="Markdown", reply_markup=get_control_keyboard())
-            elif prediction == 0 and symbol in active_symbols:
-                alpaca.close_position(symbol)
-                if TELEGRAM_CHAT_ID:
-                    bot.send_message(TELEGRAM_CHAT_ID, f"🧠🔄 **JALWE AI (إغلاق الصفقة لتغير الاتجاه)**\n📌 السهم: `{symbol}`", parse_mode="Markdown", reply_markup=get_control_keyboard())
+                    bot.send_message(TELEGRAM_CHAT_ID, f"🚨 **شراء سهم جديد:** `{symbol}`", parse_mode="Markdown")
     except Exception as e:
         last_error = str(e)
 
+# ربط الجداول
 schedule.every(20).minutes.do(ai_learning_trading_cycle)
 
 if __name__ == "__main__":
-    print("INFO - JALWE Dual-AI Liquid Radar Trader with Risk Management Online 24/7")
+    print("INFO - Bot is running cleanly...")
     
-    # تشغيل الجدول الزمني في الخلفية عبر Thread منفصل لضمان عدم تعارض الـ Polling
-    import threading
-    def schedule_thread():
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-
-    t_schedule = threading.Thread(target=schedule_thread)
-    t_schedule.daemon = True
-    t_schedule.start()
-
-    # تشغيل البوت الأساسي مباشرة بدون تعارضات
+    # حلقة التشغيل الأساسية مع معالجة الجدول الزمني والرسائل بشكل آمن
     while True:
         try:
-            print("Starting Telegram polling...")
-            bot.infinity_polling(skip_pending=True, none_stop=True)
+            schedule.run_pending()
+            # استخدام polling بمدة قصيرة لكي لا يحدث تعارض مع الجدول
+            bot.polling(none_stop=True, interval=1, timeout=3)
         except Exception as ex:
-            print(f"Polling restart due to: {ex}")
-            time.sleep(5)
+            print(f"Polling loop notice: {ex}")
+            time.sleep(3)
