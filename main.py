@@ -4,7 +4,7 @@ import logging
 import schedule
 from datetime import datetime
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 # إعداد السجلات
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,34 +19,33 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 # حالة تشغيل البوت (افتراضياً يعمل)
 bot_running = True
 
-def get_control_markup():
-    """إنشاء أزرار التحكم بالعربي (تشغيل / إيقاف)"""
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("🟢 تشغيل البوت", callback_data="start_bot"),
-        InlineKeyboardButton("🛑 إيقاف البوت", callback_data="stop_bot")
-    )
+def get_reply_keyboard():
+    """إنشاء لوحة مفاتيح ثابتة أسفل الشاشة (Reply Keyboard)"""
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    btn_start = KeyboardButton("🟢 تشغيل البوت")
+    btn_stop = KeyboardButton("🛑 إيقاف البوت")
+    markup.add(btn_start, btn_stop)
     return markup
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
+@bot.message_handler(func=lambda message: message.text == "🟢 تشغيل البوت")
+def handle_start_button(message):
     global bot_running
-    if call.data == "start_bot":
-        bot_running = True
-        bot.answer_callback_query(call.id, "تم تشغيل البوت بنجاح!")
-        bot.send_message(CHAT_ID, "🚀 **تم استئناف وتشغيل نظام التداول الآلي بنجاح وجاهز لرصد الفرص!**", parse_mode="Markdown", reply_markup=get_control_markup())
-    elif call.data == "stop_bot":
-        bot_running = False
-        bot.answer_callback_query(call.id, "تم إيقاف البوت مؤقتاً!")
-        bot.send_message(CHAT_ID, "⏸️ **تم إيقاف البوت مؤقتاً بناءً على طلبك.**", parse_mode="Markdown", reply_markup=get_control_markup())
+    bot_running = True
+    bot.send_message(message.chat.id, "🚀 **تم استئناف وتشغيل نظام التداول الآلي بنجاح وجاهز لرصد الفرص!**", parse_mode="Markdown", reply_markup=get_reply_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == "🛑 إيقاف البوت")
+def handle_stop_button(message):
+    global bot_running
+    bot_running = False
+    bot.send_message(message.chat.id, "⏸️ **تم إيقاف البوت مؤقتاً بناءً على طلبك.**", parse_mode="Markdown", reply_markup=get_reply_keyboard())
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     bot.send_message(
         message.chat.id, 
-        "🤖 **لوحة تحكم نظام التداول الذكي (JALWE AI TRADER)**\n\nاختر الحالة المناسبة للتحكم بالبوت:", 
+        "🤖 **لوحة تحكم نظام التداول الذكي (JALWE AI TRADER)**\n\nاختر الحالة المناسبة للتحكم بالبوت من الأزرار بالأسفل:", 
         parse_mode="Markdown", 
-        reply_markup=get_control_markup()
+        reply_markup=get_reply_keyboard()
     )
 
 def send_trade_alert(action, symbol, qty, price):
@@ -63,7 +62,7 @@ def send_trade_alert(action, symbol, qty, price):
         f"💵 **السعر التنفيذي:** `${price}`\n"
         f"⏰ **الوقت:** `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`"
     )
-    bot.send_message(CHAT_ID, text, parse_mode="Markdown", reply_markup=get_control_markup())
+    bot.send_message(CHAT_ID, text, parse_mode="Markdown", reply_markup=get_reply_keyboard())
 
 def send_eod_summary():
     """تقرير نهاية اليوم بالعربي عند إغلاق السوق"""
@@ -74,7 +73,7 @@ def send_eod_summary():
         f"🔍 **حالة السوق:** تم إتمام عمليات المسح والتحليل بنجاح.\n"
         f"💤 البوت الآن في وضع الاستعداد بانتظار الجلسة القادمة."
     )
-    bot.send_message(CHAT_ID, text, parse_mode="Markdown", reply_markup=get_control_markup())
+    bot.send_message(CHAT_ID, text, parse_mode="Markdown", reply_markup=get_reply_keyboard())
 
 # جدولة تقرير نهاية اليوم الساعة 11 مساءً
 schedule.every().day.at("23:00").do(send_eod_summary)
@@ -82,7 +81,7 @@ schedule.every().day.at("23:00").do(send_eod_summary)
 def run_bot_loop():
     logger.info("JALWE AI TRADER V4 pipeline is online 24/7")
     try:
-        bot.send_message(CHAT_ID, "🚀 **نظام التداول الذكي (JALWE AI TRADER) يعمل الآن بنجاح على مدار الساعة!**", parse_mode="Markdown", reply_markup=get_control_markup())
+        bot.send_message(CHAT_ID, "🚀 **نظام التداول الذكي (JALWE AI TRADER) يعمل الآن بنجاح على مدار الساعة!**", parse_mode="Markdown", reply_markup=get_reply_keyboard())
     except Exception as e:
         logger.error(f"Failed to send startup message: {e}")
 
@@ -91,8 +90,6 @@ def run_bot_loop():
             schedule.run_pending()
             if bot_running:
                 logger.info("Market scanning cycle executing...")
-                # مثال توضيحي عند شراء أو بيع سهم:
-                # send_trade_alert("BUY", "AAPL", 1, 180.50)
             else:
                 logger.info("Bot is currently stopped by user.")
             
