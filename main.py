@@ -1,10 +1,9 @@
 import os
 import logging
+from telegram_notifier import send_telegram_message
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Safe import for external_scanner module
 try:
     from external_scanner import get_top_trending_stocks
 except ImportError:
@@ -15,7 +14,9 @@ except ImportError:
 def main():
     logging.info("Starting JALWE AI TRADER V4...")
     
-    # Retrieve target stocks
+    # Send Telegram notification
+    send_telegram_message("🚀 *JALWE AI TRADER V4* is now online and running on Railway!")
+    
     stocks = get_top_trending_stocks()
     logging.info(f"Target stocks: {stocks}")
 
