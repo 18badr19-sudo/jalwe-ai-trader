@@ -1,11 +1,15 @@
 import time
 import logging
+import os
 from apscheduler.schedulers.background import BackgroundScheduler
+from alpaca_trade_api.rest import REST, TimeFrame
+
 from ai_engine import AIEngine
 from news_engine import fetch_market_news
 from market_data_engine import get_latest_stock_quote
 from execution_engine import execute_trade_order
 from risk_manager import RiskManager
+from technical_indicators import calculate_rsi, calculate_macd
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -13,9 +17,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 ai_engine = AIEngine()
 risk_manager = RiskManager(max_loss_percentage=2.0, max_position_size=100.0)
 
+# Initialize Alpaca REST API to fetch historical data for technical indicators
+alpaca_api = REST(
+    os.getenv("APCA_API_KEY_ID"),
+    os.getenv("APCA_API_SECRET_KEY"),
+    base_url=os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
+)
+
+def get_historical_close_prices(symbol: str, limit: int = 40):
+    """Fetch historical closing prices for RSI and MACD calculations."""
+    try:
+        bars = alpaca_api.get_bars(symbol, TimeFrame.Day, limit=limit).df
+        if not bars.empty:
+            return bars['close'].tolist()
+    except Exception as e:
+        logging.error(f"Failed to fetch historical data for {symbol}: {e}")
+    return []
+
 def evaluate_and_execute_strategy(symbol: str):
     """
-    Evaluate hybrid trading strategy and execute orders securely with risk management.
+    Evaluate hybrid trading strategy (AI + Technicals) and execute orders securely.
     """
     try:
         # 1. Fetch latest market quote
@@ -25,65 +46,64 @@ def evaluate_and_execute_strategy(symbol: str):
             logging.warning(f"⚠️ Could not fetch valid price for {symbol}")
             return
 
-        # 2. Fetch news sentiment and AI evaluation
+        # 2. Fetch Historical Prices & Calculate Technical Indicators
+        historical_prices = get_historical_close_prices(symbol)
+        rsi = calculate_rsi(historical_prices)
+        macd, macd_signal = calculate_macd(historical_prices)
+
+        # 3. Fetch news sentiment and AI evaluation
         sentiment = fetch_market_news(symbol)
         evaluation = ai_engine.evaluate_opportunity(symbol)
         
         ai_score = evaluation.get('ai_score', 0)
         ai_decision = evaluation.get('decision', 'HOLD')
         
-        logging.info(f"Scanned {symbol} | Price: ${current_price} | Sentiment: {sentiment} | AI Score: {ai_score} | Decision: {ai_decision}")
+        logging.info(f"📊 {symbol} | Price: ${current_price} | RSI: {rsi} | MACD: {macd}")
+        logging.info(f"🧠 {symbol} | AI Score: {ai_score} | Sentiment: {sentiment} | Decision: {ai_decision}")
         
         qty = 1  # Default trade quantity
         
-        # 3. Decision making and risk validation
-        if ai_decision == 'BUY' and ai_score >= 70:
-            logging.info(f"🚀 BUY signal confirmed for {symbol}!")
+        # 4. Advanced Decision Making (AI + Technicals) & Risk Validation
+        # BUY Condition: AI says BUY + Score >= 70 + RSI is not overbought (< 70)
+        if ai_decision == 'BUY' and ai_score >= 70 and rsi < 70:
+            logging.info(f"🚀 Strong BUY signal confirmed for {symbol} (AI + Technicals)!")
             
-            # Validate trade through RiskManager
             if risk_manager.validate_trade(symbol, current_price, qty):
                 stop_loss, take_profit = risk_manager.calculate_stop_loss_and_take_profit(current_price)
-                logging.info(f"🛡️ Risk parameters set for {symbol} -> Stop Loss: ${stop_loss} | Take Profit: ${take_profit}")
-                
-                # Execute order via Alpaca
+                logging.info(f"🛡️ Risk parameters set -> SL: ${stop_loss} | TP: ${take_profit}")
                 execute_trade_order(symbol=symbol, qty=qty, side="buy", order_type="market")
             else:
                 logging.warning(f"❌ Trade for {symbol} blocked by Risk Manager.")
                 
-        elif ai_decision == 'SELL' or ai_score < 40:
+        # SELL Condition: AI says SELL OR RSI is extremely overbought (> 80)
+        elif ai_decision == 'SELL' or ai_score < 40 or rsi >= 80:
             logging.info(f"📉 SELL signal triggered for {symbol}. Executing close order...")
             execute_trade_order(symbol=symbol, qty=qty, side="sell", order_type="market")
         else:
-            logging.info(f"⏸️ Market stable for {symbol} - HOLD (No action taken).")
+            logging.info(f"⏸️ Market stable for {symbol} - HOLD.")
             
     except Exception as e:
         logging.error(f"❌ Error executing strategy for {symbol}: {e}")
 
 def scheduled_market_scan():
-    """
-    Background job that runs periodically to scan markets and execute trading strategies.
-    """
     logging.info("Starting scheduled background market scan & execution...")
     symbols = ["AAPL", "TSLA", "BTCUSD", "ETHUSD", "NVDA"]
     
     for symbol in symbols:
         evaluate_and_execute_strategy(symbol)
         
-    logging.info("Background market scan and execution completed successfully.")
+    logging.info("Background market scan completed successfully.")
 
 if __name__ == "__main__":
-    logging.info("Initializing JALWE AI TRADER V4 Full Execution & Risk Engine...")
+    logging.info("Initializing JALWE AI TRADER V4 (AI + Technicals + Risk)...")
     
-    # Initialize background scheduler
     scheduler = BackgroundScheduler()
-    # Run market scan & execution every 10 minutes automatically
     scheduler.add_job(scheduled_market_scan, 'interval', minutes=10)
     scheduler.start()
     
-    logging.info("Background scheduler is running. Pipeline is fully active 24/7.")
+    logging.info("Background scheduler is running 24/7.")
     
     try:
-        # Keep the main process alive
         while True:
             time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
