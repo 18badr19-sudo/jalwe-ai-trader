@@ -2,6 +2,8 @@ import time
 import logging
 import schedule
 from datetime import datetime
+
+# Import core modules matching exact repository filenames
 from database_manager import DatabaseManager
 from market_scanner import MarketScanner
 from liquidity_engine import LiquidityEngine
@@ -10,10 +12,11 @@ from news_engine import NewsEngine
 from regime_detector import RegimeDetector
 from strategy_lab import StrategyLab
 from learning_engine import LearningEngine
-from risk_engine import RiskEngine
+from risk_manager import RiskEngine  # Matched with your repository filename risk_manager.py
 from position_manager import PositionManager
 from execution_engine import ExecutionEngine
 from telegram_notifier import send_telegram_message
+from market_data_engine import MarketDataEngine
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -30,6 +33,7 @@ learning_engine = LearningEngine()
 risk_engine = RiskEngine()
 position_manager = PositionManager()
 execution_engine = ExecutionEngine()
+data_engine = MarketDataEngine()
 
 def run_quant_ai_pipeline():
     """
@@ -57,8 +61,6 @@ def run_quant_ai_pipeline():
             logging.info(f"Deep analyzing symbol: {symbol}")
             
             # Fetch data & check liquidity
-            from market_data_engine import MarketDataEngine
-            data_engine = MarketDataEngine()
             df = data_engine.fetch_latest_bars(symbol, limit=40)
             
             if df is None or len(df) < 20:
@@ -77,7 +79,7 @@ def run_quant_ai_pipeline():
             }
             db.save_features(symbol, feature_snapshot, regime)
 
-            # Evaluate strategy criteria
+            # Evaluate strategy criteria & execute if conditions met
             if liquidity_data.get("liquidity_score", 0.0) > 2.0 and news_data.get("sentiment_score", -1.0) >= 0.0:
                 logging.info(f"Opportunity validated for {symbol}! Executing paper trade...")
                 
