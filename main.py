@@ -189,10 +189,10 @@ schedule.every(20).minutes.do(ai_learning_trading_cycle)
 if __name__ == "__main__":
     print("INFO - JALWE AI Ultimate Edition with full ML is running...")
     
-    # تنظيف أي اتصال معلق فوراً لمنع خطأ 409
+    # تنظيف شامل للـ Webhook وإلغاء أي جلسات معلقة قبل البدء
     try:
         bot.remove_webhook()
-        time.sleep(2)
+        time.sleep(3)
     except Exception as e:
         print(f"Webhook remove notice: {e}")
 
@@ -208,7 +208,9 @@ if __name__ == "__main__":
 
     while True:
         try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+            # إضافة إزالة الويب هوك بشكل متكرر عند بداية كل دورة استماع لمنع أي تعارض 409 نهائياً
+            bot.remove_webhook()
+            bot.infinity_polling(timeout=30, long_polling_timeout=15, skip_pending=True)
         except Exception as ex:
             print(f"Polling notice: {ex}")
             time.sleep(5)
