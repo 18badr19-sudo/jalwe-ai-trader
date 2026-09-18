@@ -1,14 +1,8 @@
 import os
 import logging
+from telegram_notifier import send_telegram_message
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-# Safe import for telegram_notifier module
-try:
-    from telegram_notifier import send_telegram_message
-except (ImportError, AttributeError):
-    def send_telegram_message(message: str):
-        logging.warning(f"Telegram notification skipped: {message}")
 
 # Safe import for external_scanner module
 try:
