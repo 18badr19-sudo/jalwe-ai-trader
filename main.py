@@ -19,13 +19,6 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 # إعداد البوت بدون خيوط متداخلة
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 
-# إجبار تليجرام على تنظيف وإلغاء أي اتصال معلق لتفادي خطأ 409 نهائياً
-try:
-    bot.remove_webhook()
-    time.sleep(2)
-except Exception:
-    pass
-
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
 bot_running = True
@@ -196,6 +189,13 @@ schedule.every(20).minutes.do(ai_learning_trading_cycle)
 if __name__ == "__main__":
     print("INFO - JALWE AI Ultimate Edition with full ML is running...")
     
+    # إجبار تليجرام على إيقاف أي ويب هوك أو جلسات سابقة عالقة قبل تشغيل البولينج
+    try:
+        bot.remove_webhook()
+        time.sleep(2)
+    except Exception as e:
+        print(f"Webhook remove notice: {e}")
+
     import threading
     def schedule_thread():
         while True:
@@ -208,7 +208,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+            bot.infinity_polling(timeout=20, long_polling_timeout=10, restart_on_change=False)
         except Exception as ex:
             print(f"Polling notice: {ex}")
-            time.sleep(5)
+            time.sleep(10)
