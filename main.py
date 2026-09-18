@@ -189,7 +189,7 @@ schedule.every(20).minutes.do(ai_learning_trading_cycle)
 if __name__ == "__main__":
     print("INFO - JALWE AI Ultimate Edition with full ML is running...")
     
-    # إجبار تليجرام على إيقاف أي ويب هوك أو جلسات سابقة عالقة قبل تشغيل البولينج
+    # تنظيف أي اتصال معلق فوراً لمنع خطأ 409
     try:
         bot.remove_webhook()
         time.sleep(2)
@@ -208,7 +208,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            bot.infinity_polling(timeout=20, long_polling_timeout=10, restart_on_change=False)
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
         except Exception as ex:
             print(f"Polling notice: {ex}")
-            time.sleep(10)
+            time.sleep(5)
