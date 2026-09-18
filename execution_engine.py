@@ -43,3 +43,10 @@ class ExecutionEngine:
         # Send notification
         message = f"🚨 *JALWE TRADER ALERT*\nExecuted {action} for *{symbol}* at ${price}"
         self.notifier.send_message(message)
+
+# دالة توافقية لحل خطأ الاستيراد في main.py
+def execute_trade_order(symbol: str, qty: float, side: str, order_type: str = "market"):
+    engine = ExecutionEngine()
+    opportunity = {"symbol": symbol, "action": side, "price": 0.0}
+    engine.execute_trade(opportunity)
+    return {"status": "success", "symbol": symbol, "qty": qty, "side": side}
