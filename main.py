@@ -52,7 +52,7 @@ def liquidity_radar_scanner():
         ]
         
         import random
-        sample_symbols = random.sample(tradable_symbols, min(25, len(tradable_symbols)))
+        sample_symbols = random.sample(tradable_symbols, min(20, len(tradable_symbols)))
         
         hot_stocks = []
         for symbol in sample_symbols:
@@ -67,9 +67,9 @@ def liquidity_radar_scanner():
                 continue
                 
         if hot_stocks:
-            return hot_stocks[:8]
+            return hot_stocks[:6]
         else:
-            return ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN", "META"]
+            return ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN"]
             
     except Exception as e:
         print(f"Error in liquidity radar: {e}")
@@ -94,7 +94,7 @@ def send_status_report(chat_id):
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ خطأ: {e}", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"⚠️ خطأ: {e}", parse_mode="Markdown", reply_markup=get_control_keyboard())
 
 @bot.message_handler(func=lambda message: True)
 def handle_control_buttons(message):
@@ -165,7 +165,6 @@ def ai_learning_trading_cycle():
         cash = float(account.cash)
         last_error = "النظام يعمل بكفاءة مع المراقبة الآلية للحماية ✅"
         
-        # أولوية أولى: فحص الصفقات المفتوحة لتطبيق وقف الخسارة أو جني الأرباح
         positions = alpaca.list_positions()
         for p in positions:
             symbol = p.symbol
@@ -173,7 +172,6 @@ def ai_learning_trading_cycle():
             current_price = float(p.current_price)
             pnl_pct = (current_price - avg_entry_price) / avg_entry_price
             
-            # جني الأرباح أو وقف الخسارة
             if pnl_pct >= TAKE_PROFIT_PCT:
                 alpaca.close_position(symbol)
                 if TELEGRAM_CHAT_ID:
@@ -183,7 +181,6 @@ def ai_learning_trading_cycle():
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, f"🛡️🛑 **تفعيل وقف الخسارة لحماية رأس المال (Stop Loss)**\n📌 السهم: `{symbol}`\n📉 نسبة الخسارة: `{pnl_pct*100:.2f}%`", parse_mode="Markdown", reply_markup=get_control_keyboard())
 
-        # أولوية ثانية: رادار السيولة وعقل الذكاء الاصطناعي لاصطياد صفقات جديدة
         dynamic_watchlist = liquidity_radar_scanner()
         active_symbols = [p.symbol for p in positions]
         
@@ -194,7 +191,6 @@ def ai_learning_trading_cycle():
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, f"🚨📊 **رادار السيولة (شراء جديد)**\n📌 السهم: `{symbol}`\n💡 دخول سيولة + تأكيد نموذج الذكاء الاصطناعي!", parse_mode="Markdown", reply_markup=get_control_keyboard())
             elif prediction == 0 and symbol in active_symbols:
-                # إغلاق الصفقة بناءً على إشارة نموذج الذكاء الاصطناعي العكسية
                 alpaca.close_position(symbol)
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, f"🧠🔄 **JALWE AI (إغلاق الصفقة لتغير الاتجاه)**\n📌 السهم: `{symbol}`", parse_mode="Markdown", reply_markup=get_control_keyboard())
@@ -205,21 +201,23 @@ schedule.every(20).minutes.do(ai_learning_trading_cycle)
 
 if __name__ == "__main__":
     print("INFO - JALWE Dual-AI Liquid Radar Trader with Risk Management Online 24/7")
+    
+    # تشغيل الجدول الزمني في الخلفية عبر Thread منفصل لضمان عدم تعارض الـ Polling
     import threading
-    
-    def polling_thread():
+    def schedule_thread():
         while True:
-            try:
-                print("Starting Telegram polling...")
-                bot.infinity_polling(skip_pending=True)
-            except Exception as ex:
-                print(f"Polling restart due to: {ex}")
-                time.sleep(5)
-    
-    t = threading.Thread(target=polling_thread)
-    t.daemon = True
-    t.start()
+            schedule.run_pending()
+            time.sleep(1)
 
+    t_schedule = threading.Thread(target=schedule_thread)
+    t_schedule.daemon = True
+    t_schedule.start()
+
+    # تشغيل البوت الأساسي مباشرة بدون تعارضات
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        try:
+            print("Starting Telegram polling...")
+            bot.infinity_polling(skip_pending=True, none_stop=True)
+        except Exception as ex:
+            print(f"Polling restart due to: {ex}")
+            time.sleep(5)
