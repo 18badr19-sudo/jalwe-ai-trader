@@ -34,3 +34,11 @@ class MarketDataEngine:
         if (df["volume"] <= 0).any():
             return False
         return True
+
+# توافقية إضافية لمنع خطأ الـ ImportError
+def get_latest_stock_quote(symbol: str):
+    engine = MarketDataEngine()
+    df = engine.fetch_latest_bars(symbol, limit=1)
+    if not df.empty:
+        return df.iloc[-1].to_dict()
+    return {}
