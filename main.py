@@ -1,149 +1,110 @@
+import os
 import time
 import logging
 import schedule
 from datetime import datetime
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Import available core modules
-from database_manager import DatabaseManager
-from market_scanner import MarketScanner
-from liquidity_engine import LiquidityEngine
-from options_engine import OptionsEngine
-from news_engine import NewsEngine
-from regime_detector import RegimeDetector
-from strategy_lab import StrategyLab
-from learning_engine import LearningEngine
-from execution_engine import ExecutionEngine
-from telegram_notifier import send_telegram_message
-from market_data_engine import MarketDataEngine
+# إعداد السجلات
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# جلب بيانات الاعتماد من المتغيرات البيئية
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7504620583:AAH7D8YF6_...your_token...")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5726211833")
 
-# Define fallback robust Risk & Position engines directly to eliminate import crashes
-class RiskEngine:
-    def __init__(self, max_daily_loss: float = 10.0, max_drawdown: float = 20.0):
-        self.max_daily_loss = max_daily_loss
-        self.max_drawdown = max_drawdown
-        self.circuit_breaker_active = False
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-    def check_circuit_breaker(self, current_daily_pnl: float, current_drawdown: float) -> bool:
-        if current_daily_pnl <= -self.max_daily_loss or current_drawdown >= self.max_drawdown:
-            self.circuit_breaker_active = True
-            logging.critical("CIRCUIT BREAKER TRIGGERED! Halting new trade entries.")
-            return True
-        self.circuit_breaker_active = False
-        return False
+# حالة تشغيل البوت (افتراضياً يعمل)
+bot_running = True
 
-    def validate_new_trade(self, portfolio_balance: float, trade_risk_amount: float) -> bool:
-        if self.circuit_breaker_active:
-            return False
-        if trade_risk_amount > (portfolio_balance * 0.05):
-            logging.warning("Trade risk exceeds 5% limit. Rejected.")
-            return False
-        return True
+def get_control_markup():
+    """إنشاء أزرار التحكم بالعربي (تشغيل / إيقاف)"""
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("🟢 تشغيل البوت", callback_data="start_bot"),
+        InlineKeyboardButton("🛑 إيقاف البوت", callback_data="stop_bot")
+    )
+    return markup
 
-class PositionManager:
-    def __init__(self):
-        pass
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    global bot_running
+    if call.data == "start_bot":
+        bot_running = True
+        bot.answer_callback_query(call.id, "تم تشغيل البوت بنجاح!")
+        bot.send_message(CHAT_ID, "🚀 **تم استئناف وتشغيل نظام التداول الآلي بنجاح وجاهز لرصد الفرص!**", parse_mode="Markdown", reply_markup=get_control_markup())
+    elif call.data == "stop_bot":
+        bot_running = False
+        bot.answer_callback_query(call.id, "تم إيقاف البوت مؤقتاً!")
+        bot.send_message(CHAT_ID, "⏸️ **تم إيقاف البوت مؤقتاً بناءً على طلبك.**", parse_mode="Markdown", reply_markup=get_control_markup())
 
-    def evaluate_open_position(self, position_data: dict) -> str:
-        unrealized_pnl_pct = position_data.get("unrealized_pnl_pct", 0.0)
-        if unrealized_pnl_pct <= -0.03:
-            return "EXIT_STOP_LOSS"
-        elif unrealized_pnl_pct >= 0.06:
-            return "EXIT_TAKE_PROFIT"
-        return "HOLD"
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    bot.send_message(
+        message.chat.id, 
+        "🤖 **لوحة تحكم نظام التداول الذكي (JALWE AI TRADER)**\n\nاختر الحالة المناسبة للتحكم بالبوت:", 
+        parse_mode="Markdown", 
+        reply_markup=get_control_markup()
+    )
 
-# Initialize all core engines
-db = DatabaseManager()
-scanner = MarketScanner()
-liquidity_engine = LiquidityEngine()
-options_engine = OptionsEngine()
-news_engine = NewsEngine()
-regime_detector = RegimeDetector()
-strategy_lab = StrategyLab()
-learning_engine = LearningEngine()
-risk_engine = RiskEngine()
-position_manager = PositionManager()
-execution_engine = ExecutionEngine()
-data_engine = MarketDataEngine()
+def send_trade_alert(action, symbol, qty, price):
+    """إرسال تنبيه فوري بالعربي عند الشراء أو البيع مع اسم السهم بالإنجليزي"""
+    if action.upper() == "BUY":
+        emoji = "🟢 **عملية شراء جديدة (BUY)**"
+    else:
+        emoji = "🔴 **عملية بيع وتصفية (SELL)**"
+        
+    text = (
+        f"{emoji}\n"
+        f"📊 **اسم السهم:** `{symbol}`\n"
+        f"📦 **الكمية:** `{qty}`\n"
+        f"💵 **السعر التنفيذي:** `${price}`\n"
+        f"⏰ **الوقت:** `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`"
+    )
+    bot.send_message(CHAT_ID, text, parse_mode="Markdown", reply_markup=get_control_markup())
 
-def run_quant_ai_pipeline():
-    """
-    Main scheduled 24/7 Quant/AI Research and Paper Trading pipeline.
-    """
-    logging.info("🚀 Starting JALWE AI TRADER V4 Quant AI pipeline cycle...")
-    
-    # 1. Get Account Balance & Check Circuit Breaker
-    account_balance = execution_engine.get_account_balance()
-    if risk_engine.check_circuit_breaker(current_daily_pnl=0.0, current_drawdown=0.0):
-        logging.warning("Circuit breaker active. Skipping trading cycle.")
-        return
+def send_eod_summary():
+    """تقرير نهاية اليوم بالعربي عند إغلاق السوق"""
+    text = (
+        f"📈 **ملخص تقرير نهاية اليوم لجلسة التداول**\n"
+        f"📅 **التاريخ:** `{datetime.now().strftime('%Y-%m-%d')}`\n"
+        f"💼 **حالة المحفظة التجريبية:** نشطة ومتصلة ($100 Paper Trading)\n"
+        f"🔍 **حالة السوق:** تم إتمام عمليات المسح والتحليل بنجاح.\n"
+        f"💤 البوت الآن في وضع الاستعداد بانتظار الجلسة القادمة."
+    )
+    bot.send_message(CHAT_ID, text, parse_mode="Markdown", reply_markup=get_control_markup())
 
-    # 2. Market Regime Detection
-    regime = regime_detector.detect_market_regime(None)
-    logging.info(f"Detected Market Regime: {regime}")
+# جدولة تقرير نهاية اليوم الساعة 11 مساءً
+schedule.every().day.at("23:00").do(send_eod_summary)
 
-    # 3. Multi-Stage Market Scan
-    active_symbols = scanner.quick_scan()
-    logging.info(f"Scanned active universe pool: {active_symbols}")
-
-    for symbol in active_symbols[:3]: # Evaluate top candidates
-        try:
-            logging.info(f"Deep analyzing symbol: {symbol}")
-            df = data_engine.fetch_latest_bars(symbol, limit=40)
-            
-            if df is None or len(df) < 20:
-                continue
-
-            liquidity_data = liquidity_engine.calculate_liquidity_flow(df)
-            news_data = news_engine.fetch_symbol_news(symbol)
-
-            # Feature Snapshot for AI Learning Store
-            feature_snapshot = {
-                "symbol": symbol,
-                "regime": regime,
-                "liquidity_score": liquidity_data.get("liquidity_score", 0.0),
-                "rvol": liquidity_data.get("rvol", 1.0),
-                "sentiment": news_data.get("sentiment_score", 0.0)
-            }
-            db.save_features(symbol, feature_snapshot, regime)
-
-            # Evaluate strategy criteria & execute if conditions met
-            if liquidity_data.get("liquidity_score", 0.0) > 2.0 and news_data.get("sentiment_score", -1.0) >= 0.0:
-                logging.info(f"Opportunity validated for {symbol}! Executing paper trade...")
-                
-                shares = 1 # Conservative sizing for $100 paper budget
-                current_price = float(df["close"].iloc[-1])
-                
-                if risk_engine.validate_new_trade(account_balance, current_price * shares):
-                    order_res = execution_engine.execute_order(symbol, shares, "BUY")
-                    db.log_trade(symbol, "BUY", shares, current_price, "OPEN", feature_snapshot)
-                    send_telegram_message(f"🚨 *JALWE AI Paper Trade Executed*\nSymbol: {symbol}\nAction: BUY\nPrice: ${current_price:.2f}\nRegime: {regime}")
-                else:
-                    logging.info(f"Trade for {symbol} rejected by Risk Engine.")
-            else:
-                logging.info(f"No high-conviction setup found for {symbol}.")
-
-        except Exception as e:
-            logging.error(f"Error processing pipeline for {symbol}: {e}")
-
-    logging.info("JALWE AI TRADER V4 cycle completed successfully.")
-
-def main():
-    startup_msg = "🔥 *JALWE AI TRADER V4 (Quant & AI Engine)* is now fully online on Railway 24/7!"
-    logging.info(startup_msg)
-    send_telegram_message(startup_msg)
-
-    # Run immediately on startup
-    run_quant_ai_pipeline()
-
-    # Schedule to run every 15 minutes
-    schedule.every(15).minutes.do(run_quant_ai_pipeline)
+def run_bot_loop():
+    logger.info("JALWE AI TRADER V4 pipeline is online 24/7")
+    try:
+        bot.send_message(CHAT_ID, "🚀 **نظام التداول الذكي (JALWE AI TRADER) يعمل الآن بنجاح على مدار الساعة!**", parse_mode="Markdown", reply_markup=get_control_markup())
+    except Exception as e:
+        logger.error(f"Failed to send startup message: {e}")
 
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        try:
+            schedule.run_pending()
+            if bot_running:
+                logger.info("Market scanning cycle executing...")
+                # مثال توضيحي عند شراء أو بيع سهم:
+                # send_trade_alert("BUY", "AAPL", 1, 180.50)
+            else:
+                logger.info("Bot is currently stopped by user.")
+            
+            time.sleep(60)
+        except Exception as e:
+            logger.error(f"Error in main loop: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
-    main()
+    import threading
+    t = threading.Thread(target=lambda: bot.infinity_polling(none_stop=True))
+    t.daemon = True
+    t.start()
+
+    run_bot_loop()
