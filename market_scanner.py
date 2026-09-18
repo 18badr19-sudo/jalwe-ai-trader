@@ -1,125 +1,79 @@
-"""
-JALWE AI TRADER V3
-Market Scanner Engine
-"""
-from dataclasses import dataclass, field
-from typing import List, Optional
+import os
+import requests
+import pandas as pd
 import logging
 
-from config import (
-    MIN_STOCK_PRICE,
-    MAX_STOCK_PRICE,
-    TIMEFRAME,
-    CANDLE_COUNT,
-    ATR_PERIOD,
-    MIN_RVOL,
-    RVOL_THRESHOLD,
-    HIGH_RVOL_THRESHOLD,
-    RVOL_LOOKBACK_PERIOD,
-    VOLUME_ACCELERATION_MIN,
-    VOLUME_ACCELERATION_THRESHOLD,
-    VOLUME_SPEED_WINDOW,
-    LIQUIDITY_SCORE_MIN,
-    MIN_VOLUME_THRESHOLD,
-    MIN_DAILY_DOLLAR_VOLUME,
-    MAX_SPREAD_PERCENT,
-    VWAP_ENABLED,
-    RSI_PERIOD,
-    EMA_FAST,
-    EMA_SLOW,
-    SMA_200,
-)
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TechnicalData:
-    symbol: str
-    price: float
-    volume: int
-    rvol: float
-    atr: float
-    spread_percent: float
-    volume_acceleration: float
-    liquidity_score: float
-    vwap: Optional[float] = None
-    rsi: Optional[float] = None
-
-
-@dataclass
-class MarketCandidate:
-    symbol: str
-    direction: str
-    technical: TechnicalData
-
-
-# Alias to support imports looking for OpportunityCandidate
-OpportunityCandidate = MarketCandidate
-
-
-class MarketDataProvider:
-    def get_candidates(self) -> List[TechnicalData]:
-        raise NotImplementedError
-
-
-class DummyDataProvider(MarketDataProvider):
-    """
-    Simulated Market Data Provider for Paper Trading & Dry Runs.
-    """
-    def get_candidates(self) -> List[TechnicalData]:
-        return [
-            TechnicalData(
-                symbol="SOUN",
-                price=5.50,
-                volume=1500000,
-                rvol=2.8,
-                atr=0.35,
-                spread_percent=0.1,
-                volume_acceleration=1.5,
-                liquidity_score=85.0,
-                vwap=5.45,
-                rsi=58.0
-            ),
-            TechnicalData(
-                symbol="BBAI",
-                price=3.20,
-                volume=2200000,
-                rvol=3.2,
-                atr=0.25,
-                spread_percent=0.15,
-                volume_acceleration=1.8,
-                liquidity_score=78.0,
-                vwap=3.18,
-                rsi=62.0
-            ),
-        ]
-
-
 class MarketScanner:
-    def __init__(self, provider: Optional[MarketDataProvider] = None):
-        self.provider = provider or DummyDataProvider()
+    def __init__(self):
+        self.api_key = os.getenv("APCA_API_KEY_ID")
+        self.api_secret = os.getenv("APCA_API_SECRET_KEY")
+        self.base_url = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
+        self.data_url = "https://data.alpaca.markets/v2"
+        
+        # Extended watchlist / universe pool for scanning
+        self.universe = ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AMD", "NFLX", "SPY", "QQQ"]
 
-    def scan_market(self) -> List[MarketCandidate]:
-        raw_candidates = self.provider.get_candidates()
-        approved = []
+    def quick_scan(self) -> list:
+        """
+        Fast scan phase: filters universe based on basic activity and volume.
+        """
+        active_symbols = []
+        headers = {
+            "APCA-API-KEY-ID": self.api_key,
+            "APCA-API-SECRET-KEY": self.api_secret
+        }
 
-        for candidate in raw_candidates:
-            rsi_valid = candidate.rsi is None or (40.0 <= candidate.rsi <= 70.0)
+        for symbol in self.universe:
+            try:
+                url = f"{self.data_url}/stocks/{symbol}/bars"
+                params = {"timeframe": "1Day", "limit": 2}
+                response = requests.get(url, headers=headers, params=params, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    bars = data.get("bars", [])
+                    if bars and len(bars) > 0:
+                        # Add to active scanning pool if data is valid
+                        active_symbols.append(symbol)
+            except Exception as e:
+                logging.warning(f"Scanner skipped {symbol} due to error: {e}")
+                
+        # Fallback if API restricted
+        if not active_symbols:
+            active_symbols = ["AAPL", "TSLA", "NVDA"]
             
-            if (
-                MIN_STOCK_PRICE <= candidate.price <= MAX_STOCK_PRICE
-                and candidate.rvol >= MIN_RVOL
-                and candidate.spread_percent <= MAX_SPREAD_PERCENT
-                and rsi_valid
-            ):
-                approved.append(
-                    MarketCandidate(
-                        symbol=candidate.symbol,
-                        direction="CALL",
-                        technical=candidate,
-                    )
-                )
+        return active_symbols
 
-        logger.info(f"Market Scanner filtered {len(approved)} valid candidates with technical criteria.")
-        return approved
+    def deep_scan_symbol(self, symbol: str) -> dict:
+        """
+        Deep scan phase: evaluates volatility, momentum, and volume acceleration for a single symbol.
+        """
+        from market_data_engine import MarketDataEngine
+        data_engine = MarketDataEngine()
+        df = data_engine.fetch_latest_bars(symbol, limit=30)
+        
+        if df is None or len(df) < 20:
+            return {"symbol": symbol, "score": 0.0, "valid": False}
+
+        # Calculate basic metrics for scoring
+        df["returns"] = df["close"].pct_change()
+        volatility = df["returns"].std()
+        rvol = df["volume"].iloc[-1] / df["volume"].mean() if df["volume"].mean() > 0 else 1.0
+
+        score = float(rvol * (1.0 + volatility * 10))
+
+        return {
+            "symbol": symbol,
+            "score": score,
+            "rvol": float(rvol),
+            "volatility": float(volatility),
+            "valid": True
+        }
+
+# Compatibility helper
+def scan_market_opportunities():
+    scanner = MarketScanner()
+    symbols = scanner.quick_scan()
+    results = [scanner.deep_scan_symbol(sym) for sym in symbols]
+    # Sort by opportunity score descending
+    sorted_results = sorted([r for r in results if r["valid"]], key=lambda x: x["score"], reverse=True)
+    return sorted_results
