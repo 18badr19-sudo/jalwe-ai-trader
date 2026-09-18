@@ -2,9 +2,11 @@ import os
 import time
 import schedule
 import pandas as pd
+import numpy as np
 import alpaca_trade_api as tradeapi
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from sklearn.ensemble import RandomForestClassifier
 
 # ==================== إعدادات البيئة والربط ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -18,107 +20,123 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
-# حالة البوت ومحفظة المراقبة
 bot_running = True
-last_error = "لا توجد أخطاء، النظام الذكي يعمل بكفاءة تامة 🧠✅"
+last_error = "لا توجد أخطاء، عقل التعلم الآلي يعمل بذكاء 🧠✅"
 
-# قائمة الأسهم المستهدفة للمسح والتداول الذكي
 WATCHLIST = ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN"]
 
-# ==================== لوحة المفاتيح الثابتة (أزرار التحكم) ====================
+# ==================== لوحة التحكم والأسرار ====================
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    btn_start = KeyboardButton("🟢 تشغيل البوت الذكي")
+    btn_start = KeyboardButton("🟢 تشغيل البوت المتعلم")
     btn_stop = KeyboardButton("🛑 إيقاف البوت")
-    btn_status = KeyboardButton("🔍 فحص ذكاء وحالة البوت")
+    btn_status = KeyboardButton("🔍 فحص نموذج التعلم الآلي")
     markup.add(btn_start, btn_stop, btn_status)
     return markup
 
-# ==================== تقرير الحالة الذكية المفصلة ====================
 def send_status_report(chat_id):
     global bot_running, last_error
     try:
         account = alpaca.get_account()
         equity = float(account.equity)
         cash = float(account.cash)
-        state_text = "🟢 يعمل بوضع الذكاء الاصطناعي (نشط)" if bot_running else "🛑 متوقف مؤقتاً"
+        state_text = "🟢 يتعلم ويتداول بذكاء (نشط)" if bot_running else "🛑 متوقف مؤقتاً"
         
         report = (
-            f"🧠 **تقرير حالة نظام JALWE AI TRADER (النسخة الذكية)**\n\n"
-            f"• **حالة البوت:** {state_text}\n"
+            f"🧠 **تقرير نموذج التعلم الآلي - JALWE AI**\n\n"
+            f"• **حالة النظام:** {state_text}\n"
             f"• **إجمالي المحفظة:** `${equity:.2f}`\n"
             f"• **السيولة المتاحة:** `${cash:.2f}`\n"
-            f"• **النموذج التحليلي:** مفعل (تحليل فني + RSI + تقييم ذكي)\n"
-            f"• **سجل الأخطاء:**\n`{last_error}`"
+            f"• **نموذج الذكاء:** Random Forest Classifier (متعلم ذاتياً)\n"
+            f"• **سجل الحالة:**\n`{last_error}`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ خطأ أثناء جلب الحالة الذكية: {e}", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"⚠️ خطأ: {e}", reply_markup=get_control_keyboard())
 
-# ==================== الاستماع لأزرار التحكم في تليجرام ====================
 @bot.message_handler(func=lambda message: True)
 def handle_control_buttons(message):
     global bot_running
     text = message.text
     chat_id = message.chat.id
 
-    if "تشغيل البوت الذكي" in text:
+    if "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل عقل البوت الذكي وبدء الرصد والتحليل الآلي.**", parse_mode="Markdown", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل عقل التعلم الآلي وبدء التدريب والتداول.**", parse_mode="Markdown", reply_markup=get_control_keyboard())
     elif "إيقاف البوت" in text:
         bot_running = False
-        bot.send_message(chat_id, "🛑 **تم إيقاف النظام الذكي مؤقتاً.**", parse_mode="Markdown", reply_markup=get_control_keyboard())
-    elif "فحص ذكاء وحالة البوت" in text:
+        bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", parse_mode="Markdown", reply_markup=get_control_keyboard())
+    elif "فحص نموذج التعلم الآلي" in text:
         send_status_report(chat_id)
     else:
-        bot.send_message(chat_id, "استخدم الأزرار أدناه للتحكم بنظامك الذكي:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "استخدم الأزرار أدناه للتحكم:", reply_markup=get_control_keyboard())
 
-# ==================== حساب مؤشرات السوق الذكية ====================
-def analyze_market_conditions(symbol, period=14):
+# ==================== تدريب نموذج الذكاء الاصطناعي والتنبؤ ====================
+def ml_predict_signal(symbol):
     try:
-        barset = alpaca.get_bars(symbol, tradeapi.TimeFrame.Day, limit=period + 10).df
-        if barset.empty:
-            return 50.0, "متعادل"
+        # جلب بيانات تاريخية كافية لتدريب النموذج
+        barset = alpaca.get_bars(symbol, tradeapi.TimeFrame.Day, limit=60).df
+        if barset.empty or len(barset) < 30:
+            return 0 # لا توجد إشارة كافية
         
-        close_prices = barset['close']
-        delta = close_prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        df = barset.copy()
+        # هندسة الميزات (Features) للتعلم الآلي
+        df['returns'] = df['close'].pct_change()
+        df['sma_5'] = df['close'].rolling(5).mean()
+        df['sma_20'] = df['close'].rolling(20).mean()
+        
+        # مؤشر RSI كميزة إضافية
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        current_rsi = float(rsi.iloc[-1])
+        df['rsi'] = 100 - (100 / (1 + rs))
         
-        # تحليل ذكي إضافي يعتمد على متوسط الأسعار (SMA)
-        sma_20 = close_prices.rolling(window=20).mean().iloc[-1]
-        current_price = close_prices.iloc[-1]
+        # الهدف (Target): هل السعر في اليوم التالي سيرتفع (1) أم ينخفض (0)؟
+        df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
         
-        trend = "صاعد 📈" if current_price > sma_20 else "هابط 📉"
-        return current_rsi, trend
-    except Exception as e:
-        print(f"Error analyzing {symbol}: {e}")
-        return 50.0, "غير محدد"
+        df = df.dropna()
+        if len(df) < 15:
+            return 0
 
-# ==================== دورة المسح والتحليل الذكي والتنفيذ ====================
-def smart_market_scanning_cycle():
+        features = ['returns', 'sma_5', 'sma_20', 'rsi']
+        X = df[features]
+        y = df['target']
+        
+        # تدريب نموذج التعلم الآلي (Random Forest)
+        model = RandomForestClassifier(n_estimators=50, random_state=42)
+        model.fit(X, y)
+        
+        # التنبؤ بسلوك السهم الحالي بناءً على آخر صف بيانات
+        current_features = X.iloc[[-1]]
+        prediction = model.predict(current_features)[0]
+        
+        return prediction # 1 تعني توقع ارتفاع، 0 توقع انخفاض
+    except Exception as e:
+        print(f"Error in ML prediction for {symbol}: {e}")
+        return 0
+
+# ==================== دورة التداول المعتمدة على التعلم الآلي ====================
+def ai_learning_trading_cycle():
     global bot_running, last_error
     if not bot_running:
         return
 
-    print("INFO - Smart AI trading & market analysis cycle executing...")
+    print("INFO - AI Machine Learning trading cycle executing...")
     
     try:
         account = alpaca.get_account()
         cash = float(account.cash)
-        last_error = "لا توجد أخطاء، النظام الذكي يعمل بسلامة تامّة ✅"
+        last_error = "لا توجد أخطاء، نموذج التعلم الآلي يعمل بكفاءة ✅"
         
         for symbol in WATCHLIST:
-            rsi_value, trend = analyze_market_conditions(symbol)
-            print(f"Smart Scan -> Symbol: {symbol} | RSI: {rsi_value:.2f} | Trend: {trend}")
+            prediction = ml_predict_signal(symbol)
+            print(f"ML Scan -> Symbol: {symbol} | Prediction (1=Buy, 0=Sell/Hold): {prediction}")
             
             positions = [p.symbol for p in alpaca.list_positions()]
             
-            # قرار شراء ذكي: إذا كان الـ RSI منخفض جداً (تشبع بيعي) والاتجاه يهيئ لارتداد، ولديك كاش
-            if rsi_value < 32 and symbol not in positions and cash > 20:
+            # إذا تنبأ نموذج الذكاء الاصطناعي بارتفاع السهم وليست لديك صفقة ولدينا سيولة
+            if prediction == 1 and symbol not in positions and cash > 20:
                 alpaca.submit_order(
                     symbol=symbol,
                     qty=1,
@@ -127,23 +145,22 @@ def smart_market_scanning_cycle():
                     time_in_force='gtc'
                 )
                 buy_msg = (
-                    f"🧠🤖 **JALWE AI - قرار شراء ذكي ومدروس**\n"
+                    f"🧠🤖 **JALWE AI (التعلم الآلي) - قرار شراء**\n"
                     f"📌 السهم: `{symbol}`\n"
-                    f"📊 مؤشر RSI: `{rsi_value:.2f}` (فرصة ارتداد محتملة)\n"
-                    f"📈 اتجاه السوق: {trend}\n"
-                    f"✅ الإجراء: تم تنفيذ الشراء الآلي بناءً على التحليل الفني."
+                    f"📈 التوقع الذكي: النموذج يتوقع صعود السهم بناءً على الأنماط التاريخية.\n"
+                    f"✅ الإجراء: تنفيذ أمر الشراء الآلي."
                 )
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, buy_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
             
-            # قرار بيع وجني أرباح ذكي: إذا دخل السهم في منطقة تشبع شرائي مبالغ فيها
-            elif rsi_value > 68 and symbol in positions:
+            # إذا تنبأ النموذج بانخفاض وكان السهم مملوكاً، نقوم بجني الأرباح/الإغلاق
+            elif prediction == 0 and symbol in positions:
                 alpaca.close_position(symbol)
                 sell_msg = (
-                    f"🧠💰 **JALWE AI - قرار بيع وجني أرباح ذكي**\n"
+                    f"🧠💰 **JALWE AI (التعلم الآلي) - جني أرباح / خروج**\n"
                     f"📌 السهم: `{symbol}`\n"
-                    f"📊 مؤشر RSI: `{rsi_value:.2f}` (منطقة تشبع شرائي واستنزاف صعود)\n"
-                    f"✅ الإجراء: تم إغلاق الصفقة لتأمين الأرباح."
+                    f"📉 التوقع الذكي: النموذج يتوقع ضغطاً سلبياً أو هبوطاً.\n"
+                    f"✅ الإجراء: إغلاق الصفقة لتأمين الحساب."
                 )
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, sell_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
@@ -151,51 +168,47 @@ def smart_market_scanning_cycle():
     except Exception as e:
         err_msg = str(e)
         last_error = err_msg
-        print(f"Error in smart trading cycle: {err_msg}")
+        print(f"Error in AI trading cycle: {err_msg}")
         if TELEGRAM_CHAT_ID:
             bot.send_message(
                 TELEGRAM_CHAT_ID, 
-                f"⚠️ **تنبيه خطأ في النظام الذكي:**\n`{err_msg}`", 
+                f"⚠️ **تنبيه خطأ في التعلم الآلي:**\n`{err_msg}`", 
                 parse_mode="Markdown", 
                 reply_markup=get_control_keyboard()
             )
 
-# ==================== تقرير نهاية اليوم الذكي ====================
 def send_smart_end_of_day_summary():
     if not TELEGRAM_CHAT_ID:
         return
     try:
         account = alpaca.get_account()
         summary_msg = (
-            f"📊🧠 **التقرير اليومي لنظام JALWE الذكي**\n"
-            f"💵 إجمالي قيمة المحفظة: `${float(account.equity):.2f}`\n"
-            f"💵 السيولة المتوفرة للذكاء الاصطناعي: `${float(account.cash):.2f}`\n"
-            f"🤖 الحالة العامة: العقل الذكي يراقب الأسواق بانتظام."
+            f"📊🧠 **التقرير اليومي للذكاء الاصطناعي المتعلم**\n"
+            f"💵 قيمة المحفظة: `${float(account.equity):.2f}`\n"
+            f"💵 الكاش المتاح: `${float(account.cash):.2f}`\n"
+            f"🤖 النماذج الإحصائية تعمل بانتظام وتحدث قراءاتها."
         )
         bot.send_message(TELEGRAM_CHAT_ID, summary_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     except Exception as e:
-        print(f"Error sending smart EOD summary: {e}")
+        print(f"Error: {e}")
 
-# جدولة دورة الفحص الذكي كل 15 دقيقة والتقرير اليومي
-schedule.every(15).minutes.do(smart_market_scanning_cycle)
+# الجدولة
+schedule.every(20).minutes.do(ai_learning_trading_cycle)
 schedule.every().day.at("23:00").do(send_smart_end_of_day_summary)
 
-# رسالة إعلان التشغيل الذكي
 if TELEGRAM_CHAT_ID:
     try:
         bot.send_message(
             TELEGRAM_CHAT_ID,
-            "🚀🧠 **JALWE AI TRADER V4 (Smart Edition) Online**\nتم ترقية البوت بنجاح ليصبح قادراً على التحليل المتقدم واتخاذ القرارات الذكية بناءً على مؤشرات السوق.",
+            "🚀🧠 **JALWE AI TRADER (Machine Learning Edition) Online**\nتم ترقية البوت ليعمل بنماذج التعلم الآلي الحقيقي وتدريب البيانات التاريخية.",
             parse_mode="Markdown",
             reply_markup=get_control_keyboard()
         )
     except Exception as e:
-        print(f"Startup message error: {e}")
+        print(f"Startup error: {e}")
 
-# تشغيل البوت في الخلفية
 if __name__ == "__main__":
-    print("INFO - JALWE AI TRADER V4 Smart Edition Online 24/7")
-    
+    print("INFO - JALWE ML Trader Online 24/7")
     import threading
     def polling_thread():
         bot.infinity_polling(none_stop=True)
