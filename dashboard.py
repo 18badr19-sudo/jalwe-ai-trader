@@ -1,9 +1,8 @@
-import os
 import streamlit as st
 import requests
 from event_engine import EventEngine
 
-# التوكن الجديد والمحدث مباشرة من BotFather
+# التوكن المباشر والصحيح 100%
 TELEGRAM_BOT_TOKEN = "8830107385:AAHXZruzk7Hmt1Z6jaEWbncVgBFG0Gif-I"
 TELEGRAM_CHAT_ID = "709594771"
 
