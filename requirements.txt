@@ -1,5 +1,6 @@
-alpaca-trade-api
+Alpaca-trade-api
 requests
+schedule
 apscheduler
 pandas
 streamlit
