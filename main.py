@@ -10,6 +10,7 @@ from market_data_engine import get_latest_stock_quote
 from execution_engine import execute_trade_order
 from risk_manager import RiskManager
 from technical_indicators import calculate_rsi, calculate_macd
+from external_scanner import get_top_trending_stocks
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -64,7 +65,6 @@ def evaluate_and_execute_strategy(symbol: str):
         qty = 1  # Default trade quantity
         
         # 4. Advanced Decision Making (AI + Technicals) & Risk Validation
-        # BUY Condition: AI says BUY + Score >= 70 + RSI is not overbought (< 70)
         if ai_decision == 'BUY' and ai_score >= 70 and rsi < 70:
             logging.info(f"🚀 Strong BUY signal confirmed for {symbol} (AI + Technicals)!")
             
@@ -75,7 +75,6 @@ def evaluate_and_execute_strategy(symbol: str):
             else:
                 logging.warning(f"❌ Trade for {symbol} blocked by Risk Manager.")
                 
-        # SELL Condition: AI says SELL OR RSI is extremely overbought (> 80)
         elif ai_decision == 'SELL' or ai_score < 40 or rsi >= 80:
             logging.info(f"📉 SELL signal triggered for {symbol}. Executing close order...")
             execute_trade_order(symbol=symbol, qty=qty, side="sell", order_type="market")
@@ -86,16 +85,19 @@ def evaluate_and_execute_strategy(symbol: str):
         logging.error(f"❌ Error executing strategy for {symbol}: {e}")
 
 def scheduled_market_scan():
-    logging.info("Starting scheduled background market scan & execution...")
-    symbols = ["AAPL", "TSLA", "BTCUSD", "ETHUSD", "NVDA"]
+    logging.info("Starting dual scan (External Radar + Internal AI/Tech Analysis)...")
     
-    for symbol in symbols:
+    # 1. Fetch trending stocks from outside the platform
+    trending_symbols = get_top_trending_stocks(limit=10)
+    
+    # 2. Evaluate them using AI and Technical Indicators
+    for symbol in trending_symbols:
         evaluate_and_execute_strategy(symbol)
         
-    logging.info("Background market scan completed successfully.")
+    logging.info("Hunting cycle completed successfully.")
 
 if __name__ == "__main__":
-    logging.info("Initializing JALWE AI TRADER V4 (AI + Technicals + Risk)...")
+    logging.info("Initializing JALWE AI TRADER V4 (AI + Technicals + Risk + External Radar)...")
     
     scheduler = BackgroundScheduler()
     scheduler.add_job(scheduled_market_scan, 'interval', minutes=10)
