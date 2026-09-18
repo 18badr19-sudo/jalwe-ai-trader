@@ -1,43 +1,38 @@
-import pandas as pd
 import logging
 
-class RiskManager:
-    def __init__(self, max_portfolio_risk: float = 0.05, max_position_size: float = 20.0):
-        """
-        Initializes risk management parameters for $100 paper trading budget.
-        - max_portfolio_risk: Maximum allowed risk per trade (e.g., 5%)
-        - max_position_size: Maximum dollar amount allocated per single trade ($20)
-        """
-        self.max_portfolio_risk = max_portfolio_risk
-        self.max_position_size = max_position_size
+class RiskEngine:
+    def __init__(self, max_daily_loss: float = 10.0, max_drawdown: float = 20.0):
+        self.max_daily_loss = max_daily_loss
+        self.max_drawdown = max_drawdown
+        self.circuit_breaker_active = False
 
-    def calculate_position_shares(self, current_price: float, account_balance: float = 100.0) -> int:
+    def check_circuit_breaker(self, current_daily_pnl: float, current_drawdown: float) -> bool:
         """
-        Calculates how many shares to buy based on the $100 balance and position limit.
+        Triggers the circuit breaker to stop new entries if daily losses or drawdown exceed limits.
         """
-        if current_price <= 0:
-            return 0
+        if current_daily_pnl <= -self.max_daily_loss or current_drawdown >= self.max_drawdown:
+            self.circuit_breaker_active = True
+            logging.critical("CIRCUIT BREAKER TRIGGERED! Halting new trade entries due to risk limits.")
+            return True
         
-        # Allocate a safe fraction of the balance (e.g., max $20 per position)
-        allocated_capital = min(self.max_position_size, account_balance * 0.5)
-        shares = int(allocated_capital / current_price)
-        
-        return max(shares, 0)
+        self.circuit_breaker_active = False
+        return False
 
-    def validate_trade_risk(self, symbol: str, signal: str, current_price: float, account_balance: float) -> bool:
+    def validate_new_trade(self, portfolio_balance: float, trade_risk_amount: float) -> bool:
         """
-        Validates whether a trade is safe to execute based on current account balance and risk rules.
+        Validates whether a new trade complies with strict risk management rules.
         """
-        if account_balance <= 5.0:
-            logging.warning("Account balance too low for safe trading.")
+        if self.circuit_breaker_active:
             return False
             
-        if signal not in ["BUY", "SELL"]:
+        # Ensure single trade doesn't risk more than 5% of total portfolio
+        if trade_risk_amount > (portfolio_balance * 0.05):
+            logging.warning("Trade risk exceeds 5% limit of portfolio balance. Rejected.")
             return False
             
         return True
 
-# Compatibility helper function
-def check_risk_limits(symbol: str, signal: str, price: float, balance: float = 100.0) -> bool:
-    rm = RiskManager()
-    return rm.validate_trade_risk(symbol, signal, price, balance)
+# Compatibility helper
+def check_risk_limits(daily_pnl: float, drawdown: float) -> bool:
+    engine = RiskEngine()
+    return engine.check_circuit_breaker(daily_pnl, drawdown)
