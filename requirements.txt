@@ -2,4 +2,6 @@ pyTelegramBotAPI
 requests
 schedule
 pandas
+numpy
+scikit-learn
 alpaca-trade-api
