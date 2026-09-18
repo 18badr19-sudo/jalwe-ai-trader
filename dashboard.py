@@ -3,9 +3,9 @@ import streamlit as st
 import requests
 from event_engine import EventEngine
 
-# قراءة التوكن ومعرف الشات من متغيرات النظام في Railway لتجنب أي خطأ في النسخ
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8830107385:AAFuIYgvlHjGC8EHe-JzcsLB-Z4S-jPTLE")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "709594771")
+# التوكن الجديد والمحدث مباشرة من BotFather
+TELEGRAM_BOT_TOKEN = "8830107385:AAHXZruzk7Hmt1Z6jaEWbncVgBFG0Gif-I"
+TELEGRAM_CHAT_ID = "709594771"
 
 def send_streamlit_telegram_alert(message: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
