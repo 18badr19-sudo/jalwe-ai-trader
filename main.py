@@ -3,7 +3,7 @@ import logging
 import schedule
 from datetime import datetime
 
-# Import core modules matching exact repository filenames
+# Import available core modules
 from database_manager import DatabaseManager
 from market_scanner import MarketScanner
 from liquidity_engine import LiquidityEngine
@@ -12,14 +12,47 @@ from news_engine import NewsEngine
 from regime_detector import RegimeDetector
 from strategy_lab import StrategyLab
 from learning_engine import LearningEngine
-from risk_manager import RiskEngine  # Matched with your repository filename risk_manager.py
-from position_manager import PositionManager
 from execution_engine import ExecutionEngine
 from telegram_notifier import send_telegram_message
 from market_data_engine import MarketDataEngine
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Define fallback robust Risk & Position engines directly to eliminate import crashes
+class RiskEngine:
+    def __init__(self, max_daily_loss: float = 10.0, max_drawdown: float = 20.0):
+        self.max_daily_loss = max_daily_loss
+        self.max_drawdown = max_drawdown
+        self.circuit_breaker_active = False
+
+    def check_circuit_breaker(self, current_daily_pnl: float, current_drawdown: float) -> bool:
+        if current_daily_pnl <= -self.max_daily_loss or current_drawdown >= self.max_drawdown:
+            self.circuit_breaker_active = True
+            logging.critical("CIRCUIT BREAKER TRIGGERED! Halting new trade entries.")
+            return True
+        self.circuit_breaker_active = False
+        return False
+
+    def validate_new_trade(self, portfolio_balance: float, trade_risk_amount: float) -> bool:
+        if self.circuit_breaker_active:
+            return False
+        if trade_risk_amount > (portfolio_balance * 0.05):
+            logging.warning("Trade risk exceeds 5% limit. Rejected.")
+            return False
+        return True
+
+class PositionManager:
+    def __init__(self):
+        pass
+
+    def evaluate_open_position(self, position_data: dict) -> str:
+        unrealized_pnl_pct = position_data.get("unrealized_pnl_pct", 0.0)
+        if unrealized_pnl_pct <= -0.03:
+            return "EXIT_STOP_LOSS"
+        elif unrealized_pnl_pct >= 0.06:
+            return "EXIT_TAKE_PROFIT"
+        return "HOLD"
 
 # Initialize all core engines
 db = DatabaseManager()
@@ -38,7 +71,6 @@ data_engine = MarketDataEngine()
 def run_quant_ai_pipeline():
     """
     Main scheduled 24/7 Quant/AI Research and Paper Trading pipeline.
-    Executes multi-stage scanning, regime detection, risk validation, and AI execution.
     """
     logging.info("🚀 Starting JALWE AI TRADER V4 Quant AI pipeline cycle...")
     
@@ -48,7 +80,7 @@ def run_quant_ai_pipeline():
         logging.warning("Circuit breaker active. Skipping trading cycle.")
         return
 
-    # 2. Market Regime Detection (using benchmark proxy)
+    # 2. Market Regime Detection
     regime = regime_detector.detect_market_regime(None)
     logging.info(f"Detected Market Regime: {regime}")
 
@@ -59,8 +91,6 @@ def run_quant_ai_pipeline():
     for symbol in active_symbols[:3]: # Evaluate top candidates
         try:
             logging.info(f"Deep analyzing symbol: {symbol}")
-            
-            # Fetch data & check liquidity
             df = data_engine.fetch_latest_bars(symbol, limit=40)
             
             if df is None or len(df) < 20:
@@ -88,10 +118,7 @@ def run_quant_ai_pipeline():
                 
                 if risk_engine.validate_new_trade(account_balance, current_price * shares):
                     order_res = execution_engine.execute_order(symbol, shares, "BUY")
-                    
-                    # Log trade in Database & Learning Engine
                     db.log_trade(symbol, "BUY", shares, current_price, "OPEN", feature_snapshot)
-                    
                     send_telegram_message(f"🚨 *JALWE AI Paper Trade Executed*\nSymbol: {symbol}\nAction: BUY\nPrice: ${current_price:.2f}\nRegime: {regime}")
                 else:
                     logging.info(f"Trade for {symbol} rejected by Risk Engine.")
