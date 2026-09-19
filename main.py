@@ -57,8 +57,12 @@ def get_control_keyboard():
     markup.add(
         KeyboardButton("🟢 تشغيل الرادار المستقل"),
         KeyboardButton("🛑 إيقاف البوت"),
-        KeyboardButton("🔍 فحص نموذج التعلم الذاتي"),
+        KeyboardButton("🎯 إضافة سهم للمتابعة"),
+        KeyboardButton("💼 محفظتي وأسهمي"),
+        KeyboardButton("📊 أداء محفظتي والربح"),
+        KeyboardButton("⚙️ حالة الأوامر المفتوحة"),
         KeyboardButton("📊 فحص السوق حالياً"),
+        KeyboardButton("🔍 فحص نموذج التعلم الذاتي"),
         KeyboardButton("⚠️ تقرير النظام والأخطاء")
     )
     return markup
@@ -89,6 +93,81 @@ def handle_messages(message):
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
         return
+    elif "🎯 إضافة سهم للمتابعة" in text or "تابعة أسهم معينة" in text:
+        bot.send_message(chat_id, "🎯 **وضع متابعة الأسهم المحددة جاهز!**\nأرسل الآن أي رمز سهم تود إضافته ومتابعته وفحصه (مثال: `AAPL`, `TSLA`, `MSFT`) وسيقوم البوت بدراسته وجلب سعره فوراً.", reply_markup=get_control_keyboard())
+        return
+    elif "💼 محفظتي وأسهمي" in text or "محفظتي" in text:
+        bot.send_message(chat_id, "⏳ جاري الاتصال بحسابك في Alpaca وجلب تفاصيل محفظتك الحالية...", reply_markup=get_control_keyboard())
+        try:
+            account = alpaca.get_account()
+            positions = alpaca.list_positions()
+            
+            portfolio_msg = (
+                f"💼 **تقرير محفظتك الاستثمارية اللحظية:**\n\n"
+                f"💵 **إجمالي السيولة (Cash):** `${float(account.cash):,.2f}`\n"
+                f"💰 **إجمالي قيمة الحساب:** `${float(account.portfolio_value):,.2f}`\n"
+                f"📉 **القوة الشرائية:** `${float(account.buying_power):,.2f}`\n\n"
+                f"📦 **الأسهم المملوكة حالياً:**\n"
+            )
+            
+            if not positions:
+                portfolio_msg += "\n*لا توجد أسهم مملوكة في المحفظة حالياً.*"
+            else:
+                for p in positions:
+                    symbol = p.symbol
+                    qty = p.qty
+                    current_price = float(p.current_price)
+                    market_value = float(p.market_value)
+                    unrealized_pl = float(p.unrealized_pl)
+                    pl_pc = float(p.unrealized_plpc) * 100
+                    
+                    emoji = "🟢" if unrealized_pl >= 0 else "🔴"
+                    portfolio_msg += (
+                        f"\n• الرمز: `{symbol}`\n"
+                        f"  - الكمية: `{qty}` سهم\n"
+                        f"  - السعر الحالي: `${current_price}`\n"
+                        f"  - الإجمالي: `${market_value:,.2f}`\n"
+                        f"  - الربح/الخسارة: {emoji} `${unrealized_pl:,.2f}` (`{pl_pc:.2f}%`)\n"
+                    )
+            
+            bot.send_message(chat_id, portfolio_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ تعذر جلب بيانات المحفظة من المنصة: {str(e)[:60]}", reply_markup=get_control_keyboard())
+        return
+    elif "📊 أداء محفظتي والربح" in text:
+        bot.send_message(chat_id, "⏳ جاري حساب أداء المحفظة ونسب الأرباح الإجمالية...", reply_markup=get_control_keyboard())
+        try:
+            account = alpaca.get_account()
+            equity = float(account.equity)
+            last_equity = float(account.last_equity)
+            day_pl = equity - last_equity
+            day_pl_pc = (day_pl / last_equity) * 100 if last_equity > 0 else 0
+            
+            emoji = "🟢" if day_pl >= 0 else "🔴"
+            perf_msg = (
+                f"📊 **تقرير أداء المحفظة والأرباح:**\n\n"
+                f"💰 **القيمة الحالية للسوق:** `${equity:,.2f}`\n"
+                f"📅 **أداء اليوم:** {emoji} `${day_pl:,.2f}` (`{day_pl_pc:.2f}%`)\n"
+                f"📈 **حالة الحساب العامة:** `متصل ومستقر`"
+            )
+            bot.send_message(chat_id, perf_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ تعذر جلب أداء المحفظة: {str(e)[:50]}", reply_markup=get_control_keyboard())
+        return
+    elif "⚙️ حالة الأوامر المفتوحة" in text:
+        bot.send_message(chat_id, "⏳ جاري جلب الأوامر المعلقة والمفتوحة في السوق...", reply_markup=get_control_keyboard())
+        try:
+            orders = alpaca.list_orders(status='open')
+            orders_msg = "⚙️ **الأوامر المعلقة والمفتوحة حالياً:**\n\n"
+            if not orders:
+                orders_msg += "*لا توجد أوامر مفتوحة أو معلقة في الوقت الحالي.*"
+            else:
+                for o in orders:
+                    orders_msg += f"• الرمز: `{o.symbol}` | النوع: `{o.side}` | الكمية: `{o.qty}` | الحالة: `{o.status}`\n"
+            bot.send_message(chat_id, orders_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ تعذر جلب الأوامر المفتوحة: {str(e)[:50]}", reply_markup=get_control_keyboard())
+        return
     elif "فحص نموذج التعلم الذاتي" in text or "فحص نموذج التعلم الآلي" in text:
         total_cases = get_saved_snapshots_count()
         bot.send_message(chat_id, f"🧠 **ذاكرة المحلل الذكي:**\n- الحالة: `يتعلم ويدرس الفرص المستقلة`\n- الحالات المحفوظة: `{total_cases} حالة`", reply_markup=get_control_keyboard())
@@ -104,7 +183,7 @@ def handle_messages(message):
             f"🛠️ **تشخيص النظام المستقل (JALWE AI Ultimate):**\n\n"
             f"• **الحالة:** `{last_error}`\n"
             f"• **سوق الأسهم:** `{market_status}`\n"
-            f"• **النمط:** `أرسل أي رمز سهم وسيقوم البوت بتحليله واتخاذ قراره وتقييمه بشكل مستقل تماماً دون مشاورة.`"
+            f"• **النمط:** `أرسل أي رمز سهم وسيقوم البوت بجلب سعره اللحظي وتحليله وتقييمه بشكل مستقل.`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
         return
@@ -123,23 +202,23 @@ def handle_messages(message):
             if not valid_candidates:
                 bot.send_message(chat_id, "📊 لم يتم رصد سهم مستوفي للشروط حالياً.", reply_markup=get_control_keyboard())
             else:
-                msg = "🎯 **قرار البوت المستقل لأبرز الفرص الحالية:**\n\n"
+                msg = "🎯 **قرار البوت المستقل لأبرز الفرص الحالية وسعرها:**\n\n"
                 for sym, metrics in valid_candidates:
                     eval_res = pre_engine.evaluate_pre_breakout(metrics)
-                    msg += f"• الرمز: `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
+                    msg += f"• الرمز: `{sym}` | السعر الحالي: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
                 bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)}", reply_markup=get_control_keyboard())
         return
 
-    # إذا لم يكن النص زراً من الأزرار أعلاه، فسيتم اعتباره مباشرة رمز سهم وفحصه فوراً!
+    # إذا أرسل المستخدم رمز سهم أو كتابة بخلاف الأزرار، سيتم جلب سعره وفحصه فوراً
     symbol_to_check = text.replace("$", "").strip().upper()
     if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
-        bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري فحصه ودراسة جدواه واتخاذ القرار بشأنه...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري جلب سعره الفوري وفحصه...", reply_markup=get_control_keyboard())
         try:
             metrics = pre_engine.calculate_metrics(symbol_to_check)
             if not metrics:
-                bot.send_message(chat_id, f"⚠️ عذراً، لا توجد بيانات كافية للسهم `{symbol_to_check}` لتكوين قرار بشأنه.", reply_markup=get_control_keyboard())
+                bot.send_message(chat_id, f"⚠️ عذراً، لا توجد بيانات كافية للسهم `{symbol_to_check}` حالياً.", reply_markup=get_control_keyboard())
                 return
             
             price = metrics.get('price', 0)
@@ -156,17 +235,17 @@ def handle_messages(message):
                 decision = "🔴 **قرر البوت: السهم ضعيف حالياً ولا توجد فيه جدوى قوية.**"
 
             analysis_msg = (
-                f"🔬 **تقرير القرار المستقل للتحليل (JALWE AI):**\n"
+                f"🔬 **تقرير السعر والتحليل المستقل (JALWE AI):**\n"
                 f"📌 الرمز: `{symbol_to_check}`\n"
-                f"💵 السعر: `${price}`\n"
+                f"💵 **السعر الحالي:** `${price}`\n"
                 f"📈 عزم السيولة (RVOL): `{metrics.get('rvol', 1)}x`\n"
                 f"⚡ نسبة الجدوى والتقييم: `{score}%`\n\n"
                 f"{decision}\n\n"
-                f"📊 **خطة البوت الموضوعة للسهم:**\n"
+                f"📊 **خطة السعر المستهدفة المقترحة:**\n"
                 f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
                 f"• 🎯 الهدف الأول: `${target_1}`\n"
                 f"• 🎯 الهدف الثاني: `${target_2}`\n\n"
-                f"🛡️ *تم حفظ قراره وحالته في الذاكرة للتعلم الذاتي المستمر.*"
+                f"🛡️ *تم حفظ السعر والقرار في الذاكرة للتعلم الذاتي المستمر.*"
             )
             bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
 
@@ -183,7 +262,7 @@ def handle_messages(message):
                 pass
 
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء معالجة السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء جلب سعر السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
     else:
         bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم صحيح (مثل: `AAPL`).", reply_markup=get_control_keyboard())
 
@@ -230,17 +309,17 @@ def main_trading_cycle():
                 pass
 
             alert_msg = (
-                f"💎 **JALWE AI — رصد ذاتي لفرصة واعدة ذات جدوى**\n"
+                f"💎 **JALWE AI — رصد ذاتي لفرصة واعدة**\n"
                 f"📌 الرمز: `{sym}`\n"
-                f"💵 السعر: `${price}`\n"
+                f"💵 **السعر الحالي:** `${price}`\n"
                 f"📈 عزم السيولة (RVOL): `{metrics['rvol']}x`\n"
                 f"⚡ تقييم الذكاء الاصطناعي: `{score}%`\n\n"
-                f"📊 **خطة البوت المستقلة للاستفادة من السهم:**\n"
+                f"📊 **الخطة السعرية المقترحة:**\n"
                 f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
                 f"• 🎯 الهدف الأول: `${target_1}`\n"
                 f"• 🎯 الهدف الثاني: `${target_2}`\n"
                 f"• 🎯 الهدف الأكبر: `${target_3}`\n\n"
-                f"🛡️ *البوت يراقب ويحلل ويحفظ السهم في ذاكرته المستقلة تماماً.*"
+                f"🛡️ *البوت يراقب السعر ويحفظه في ذاكرته المستقلة.*"
             )
             if TELEGRAM_CHAT_ID:
                 bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
