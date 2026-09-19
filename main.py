@@ -80,8 +80,8 @@ def handle_messages(message):
     text = message.text.strip()
     chat_id = message.chat.id
 
-    # الأوامر الرئيسية للتحكم
-    if "تشغيل الرادار المستقل" in text:
+    # الأوامر الرئيسية للتحكم عبر الأزرار
+    if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
         bot.send_message(chat_id, "🟢 **تم تفعيل المحلل المستقل والرادار الاستباقي بنجاح.**", reply_markup=get_control_keyboard())
         return
@@ -89,11 +89,11 @@ def handle_messages(message):
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
         return
-    elif "فحص نموذج التعلم الذاتي" in text:
+    elif "فحص نموذج التعلم الذاتي" in text or "فحص نموذج التعلم الآلي" in text:
         total_cases = get_saved_snapshots_count()
         bot.send_message(chat_id, f"🧠 **ذاكرة المحلل الذكي:**\n- الحالة: `يتعلم ويدرس الفرص المستقلة`\n- الحالات المحفوظة: `{total_cases} حالة`", reply_markup=get_control_keyboard())
         return
-    elif "تقرير النظام والأخطاء" in text:
+    elif "تقرير النظام والأخطاء" in text or "فحص الأخطاء والنظام" in text:
         try:
             clock = alpaca.get_clock()
             market_status = "مفتوح 🟢" if clock.is_open else "مغلق 🔴"
@@ -108,7 +108,7 @@ def handle_messages(message):
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
         return
-    elif "فحص السوق حالياً" in text:
+    elif "فحص السوق حالياً" in text or "أسعار الأسهم" in text:
         bot.send_message(chat_id, "⏳ جاري مسح السوق برمتها ودراسة الأسهم ذات الجدوى...", reply_markup=get_control_keyboard())
         try:
             symbols = pre_engine.scan_entire_market()
@@ -132,9 +132,10 @@ def handle_messages(message):
             bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)}", reply_markup=get_control_keyboard())
         return
 
-    # إذا أرسل المستخدم رمز سهم، البوت لا يشاوره بل يتخذ قراره ويفحصه فوراً بشكل مستقل
-    if len(text) <= 6 and text.isalnum():
-        symbol_to_check = text.upper()
+    # معالجة رمز السهم المرسل مباشرة (يتم فحصه واتخاذ القرار بشأنه بشكل مستقل دون أي مشاورة)
+    clean_text = text.replace("$", "").strip()
+    if len(clean_text) <= 6 and clean_text.isalnum():
+        symbol_to_check = clean_text.upper()
         bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري فحصه ودراسة جدواه واتخاذ القرار بشأنه...", reply_markup=get_control_keyboard())
         try:
             metrics = pre_engine.calculate_metrics(symbol_to_check)
@@ -150,7 +151,6 @@ def handle_messages(message):
             target_2 = round(price * 1.65, 2)
             stop_loss = round(price * 0.88, 2)
             
-            # قرار البوت المستقل
             if score >= 45:
                 decision = "🟢 **قرر البوت: السهم فيه (فايدة) وعزم حقيقي ويستحق المتابعة!**"
             else:
@@ -171,7 +171,6 @@ def handle_messages(message):
             )
             bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
 
-            # حفظ الحالة في قاعدة البيانات الذاتية
             try:
                 conn = sqlite3.connect("jalwe_learning.db")
                 cursor = conn.cursor()
@@ -187,7 +186,7 @@ def handle_messages(message):
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء معالجة السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم (مثل: `PLTR` أو `SOFI`) ليتولى البوت فحصه واتخاذ قراره بشأنه.", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم (مثل: `AAPL`) ليتولى البوت فحصه واتخاذ قراره بشأنه.", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running, last_error
