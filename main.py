@@ -49,7 +49,7 @@ options_engine = OptionsFlowEngine(alpaca)
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "النظام الذكي الشامل يعمل بكفاءة تامة 🚀"
+last_error = "النظام الذكي للتنفيذ الذاتي يعمل بكفاءة تامة 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -78,7 +78,6 @@ def get_saved_snapshots_count():
         return 0
 
 def get_fallback_price(symbol):
-    """جلب السعر أو الإغلاق السابق في حال كان السوق مغلقاً أو البيانات اللحظية غير متاحة"""
     try:
         barset = alpaca.get_bars(symbol.upper(), tradeapi.TimeFrame.Day, limit=5).df
         if not barset.empty:
@@ -94,16 +93,9 @@ def get_fallback_price(symbol):
     return None, None
 
 def evaluate_multi_strategies(symbol, price, barset):
-    """
-    نظام دمج الاستراتيجيات الثلاث:
-    1. استراتيجية اختراق العزم (Breakout Momentum)
-    2. استراتيجية الارتداد من الدعم / التشبع (Mean Reversion)
-    3. استراتيجية تقاطع المتوسطات (EMA Crossover Simulation)
-    """
     score = 50
     reasons = []
 
-    # 1. فحص العزم والاختراق
     if barset is not None and len(barset) >= 3:
         recent_high = barset['high'].iloc[:-1].max()
         if price >= recent_high * 0.98:
@@ -116,7 +108,6 @@ def evaluate_multi_strategies(symbol, price, barset):
         score += 10
         reasons.append("⚡ زخم سعري افتراضي مستقر")
 
-    # 2. فحص ارتداد السعر (Mean Reversion / Support)
     if barset is not None and len(barset) >= 5:
         ma_5 = barset['close'].rolling(window=3).mean().iloc[-1]
         if price >= ma_5:
@@ -126,8 +117,6 @@ def evaluate_multi_strategies(symbol, price, barset):
             score += 8
             reasons.append("📉 تراجع طفيف نحو مناطق الدعم")
 
-    # 3. فحص تقاطع المتوسطات (EMA Crossover)
-    # محاكاة تقاطع إيجابي مبني على تدفقات السعر
     if price > 5.0:
         score += 12
         reasons.append("🔄 توافق تقاطع المتوسطات الإيجابي (EMA)")
@@ -143,184 +132,136 @@ def handle_messages(message):
 
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل المحلل الاستراتيجي الشامل بنجاح.**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل التنفيذ الآلي المستقل بالكامل.**", reply_markup=get_control_keyboard())
         return
     elif "إيقاف البوت" in text:
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
         return
-    elif "🎯 إضافة سهم للمتابعة" in text or "تابعة أسهم معينة" in text:
-        bot.send_message(chat_id, "🎯 **وضع الاستراتيجيات الثلاث جاهز!**\nأرسل الآن أي رمز سهم لتطبيق الاستراتيجيات الثلاث عليه (مثال: `AAPL`, `TSLA`, `MSFT`).", reply_markup=get_control_keyboard())
+    elif "🎯 إضافة سهم للمتابعة" in text:
+        bot.send_message(chat_id, "🎯 **وضع المتابعة والتحليل جاهز!** أرسل رمز السهم (مثال: `AAPL`).", reply_markup=get_control_keyboard())
         return
-    elif "💼 محفظتي وأسهمي" in text or "محفظتي" in text:
-        bot.send_message(chat_id, "⏳ جاري الاتصال بحسابك في Alpaca وجلب تفاصيل محفظتك الحالية...", reply_markup=get_control_keyboard())
+    elif "💼 محفظتي وأسهمي" in text:
+        bot.send_message(chat_id, "⏳ جاري جلب تفاصيل محفظتك الحالية...", reply_markup=get_control_keyboard())
         try:
             account = alpaca.get_account()
             positions = alpaca.list_positions()
-            
             portfolio_msg = (
                 f"💼 **تقرير محفظتك الاستثمارية اللحظية:**\n\n"
-                f"💵 **إجمالي السيولة (Cash):** `${float(account.cash):,.2f}`\n"
-                f"💰 **إجمالي قيمة الحساب:** `${float(account.portfolio_value):,.2f}`\n"
-                f"📉 **القوة الشرائية:** `${float(account.buying_power):,.2f}`\n\n"
+                f"💵 **السيولة (Cash):** `${float(account.cash):,.2f}`\n"
+                f"💰 **إجمالي الحساب:** `${float(account.portfolio_value):,.2f}`\n\n"
                 f"📦 **الأسهم المملوكة حالياً:**\n"
             )
-            
             if not positions:
-                portfolio_msg += "\n*لا توجد أسهم مملوكة في المحفظة حالياً.*"
+                portfolio_msg += "\n*لا توجد أسهم مملوكة حالياً.*"
             else:
                 for p in positions:
-                    symbol = p.symbol
-                    qty = p.qty
-                    current_price = float(p.current_price)
-                    market_value = float(p.market_value)
-                    unrealized_pl = float(p.unrealized_pl)
-                    pl_pc = float(p.unrealized_plpc) * 100
-                    
-                    emoji = "🟢" if unrealized_pl >= 0 else "🔴"
-                    portfolio_msg += (
-                        f"\n• الرمز: `{symbol}`\n"
-                        f"  - الكمية: `{qty}` سهم\n"
-                        f"  - السعر الحالي: `${current_price}`\n"
-                        f"  - الإجمالي: `${market_value:,.2f}`\n"
-                        f"  - الربح/الخسارة: {emoji} `${unrealized_pl:,.2f}` (`{pl_pc:.2f}%`)\n"
-                    )
-            
+                    portfolio_msg += f"• `{p.symbol}` | الكمية: `{p.qty}` | السعر: `${float(p.current_price)}`\n"
             bot.send_message(chat_id, portfolio_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ تعذر جلب بيانات المحفظة من المنصة: {str(e)[:60]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ تعذر جلب المحفظة: {str(e)[:50]}", reply_markup=get_control_keyboard())
         return
     elif "📊 أداء محفظتي والربح" in text:
-        bot.send_message(chat_id, "⏳ جاري حساب أداء المحفظة ونسب الأرباح الإجمالية...", reply_markup=get_control_keyboard())
         try:
             account = alpaca.get_account()
             equity = float(account.equity)
             last_equity = float(account.last_equity)
             day_pl = equity - last_equity
             day_pl_pc = (day_pl / last_equity) * 100 if last_equity > 0 else 0
-            
             emoji = "🟢" if day_pl >= 0 else "🔴"
-            perf_msg = (
-                f"📊 **تقرير أداء المحفظة والأرباح:**\n\n"
-                f"💰 **القيمة الحالية للسوق:** `${equity:,.2f}`\n"
-                f"📅 **أداء اليوم:** {emoji} `${day_pl:,.2f}` (`{day_pl_pc:.2f}%`)\n"
-                f"📈 **حالة الحساب العامة:** `متصل ومستقر`"
-            )
-            bot.send_message(chat_id, perf_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"📊 **أداء المحفظة:**\nالقيمة: `${equity:,.2f}`\nأداء اليوم: {emoji} `${day_pl:,.2f}` (`{day_pl_pc:.2f}%`)", parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ تعذر جلب أداء المحفظة: {str(e)[:50]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
     elif "⚙️ حالة الأوامر المفتوحة" in text:
-        bot.send_message(chat_id, "⏳ جاري جلب الأوامر المعلقة والمفتوحة في السوق...", reply_markup=get_control_keyboard())
         try:
             orders = alpaca.list_orders(status='open')
-            orders_msg = "⚙️ **الأوامر المعلقة والمفتوحة حالياً:**\n\n"
+            msg = "⚙️ **الأوامر المفتوحة:**\n"
             if not orders:
-                orders_msg += "*لا توجد أوامر مفتوحة أو معلقة في الوقت الحالي.*"
+                msg += "*لا توجد أوامر معلقة.*"
             else:
                 for o in orders:
-                    orders_msg += f"• الرمز: `{o.symbol}` | النوع: `{o.side}` | الكمية: `{o.qty}` | الحالة: `{o.status}`\n"
-            bot.send_message(chat_id, orders_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+                    msg += f"• `{o.symbol}` | {o.side} | {o.qty}\n"
+            bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ تعذر جلب الأوامر المفتوحة: {str(e)[:50]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
-    elif "فحص نموذج التعلم الذاتي" in text or "فحص نموذج التعلم الآلي" in text:
-        total_cases = get_saved_snapshots_count()
-        bot.send_message(chat_id, f"🧠 **محرك الاستراتيجيات الثلاث المتقدم:**\n- الحالة: `يعمل بالدمج التام (Breakout + Mean Reversion + EMA)`\n- الحالات المحفوظة: `{total_cases} حالة`", reply_markup=get_control_keyboard())
+    elif "فحص نموذج التعلم الذاتي" in text:
+        total = get_saved_snapshots_count()
+        bot.send_message(chat_id, f"🧠 **التنفيذ الذاتي والتعلم:**\n- الحالات المحفوظة: `{total}`\n- الحالة: `جاهز للشراء والتنفيذ التلقائي بالكامل عند توافق الفرص.`", reply_markup=get_control_keyboard())
         return
-    elif "تقرير النظام والأخطاء" in text or "فحص الأخطاء والنظام" in text:
-        try:
-            clock = alpaca.get_clock()
-            market_status = "مفتوح 🟢" if clock.is_open else "مغلق 🔴 (يعمل بنظام استراتيجيات الدعم 24/7)"
-        except Exception:
-            market_status = "متصل"
-            
-        report = (
-            f"🛠️ **تشخيص النظام المستقل (JALWE Multi-Strategy):**\n\n"
-            f"• **الحالة:** `{last_error}`\n"
-            f"• **سوق الأسهم:** `{market_status}`\n"
-            f"• **الاستراتيجيات النشطة:** `اختراق العزم، ارتداد الدعم، تقاطع المتوسطات.`"
-        )
-        bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
+    elif "تقرير النظام والأخطاء" in text:
+        bot.send_message(chat_id, f"🛠️ **التشخيص:**\n{last_error}\nالوضع: `تشغيل ذاتي كامل 24/7`", reply_markup=get_control_keyboard())
         return
-    elif "فحص السوق حالياً" in text or "أسعار الأسهم" in text:
-        bot.send_message(chat_id, "⏳ جاري مسح السوق وتطبيق الاستراتيجيات الثلاث على الأسهم...", reply_markup=get_control_keyboard())
+    elif "فحص السوق حالياً" in text:
+        bot.send_message(chat_id, "⏳ جاري فحص السوق والبحث عن فرص للتنفيذ الفوري...", reply_markup=get_control_keyboard())
         try:
             symbols = pre_engine.scan_entire_market()
-            valid_candidates = []
+            viable = []
             for sym in symbols:
-                price, barset = get_fallback_price(sym)
-                if price and 0.25 <= price <= 50.0:
-                    score, _ = evaluate_multi_strategies(sym, price, barset)
-                    if score >= 60:
-                        valid_candidates.append((sym, price, score))
-                if len(valid_candidates) >= 3:
+                p, bs = get_fallback_price(sym)
+                if p and 0.25 <= p <= 50.0:
+                    sc, _ = evaluate_multi_strategies(sym, p, bs)
+                    if sc >= 70:
+                        viable.append((sym, p, sc))
+                if len(viable) >= 3:
                     break
-            
-            if not valid_candidates:
-                bot.send_message(chat_id, "📊 لم يتم رصد أسهم مستوفية لمعايير الاستراتيجيات حالياً.", reply_markup=get_control_keyboard())
+            if not viable:
+                bot.send_message(chat_id, "📊 لم تتطابق شروط التنفيذ الصارمة مع أي سهم حالياً.", reply_markup=get_control_keyboard())
             else:
-                msg = "🎯 **أبرز الفرص المتوافقة مع الاستراتيجيات الثلاث:**\n\n"
-                for sym, price, sc in valid_candidates:
-                    msg += f"• الرمز: `{sym}` | السعر: `${price}` | تقييم الاستراتيجيات: `{sc}%`\n"
+                msg = "🎯 **أفضل الفرص المرشحة للتنفيذ التلقائي:**\n\n"
+                for s, pr, sc in viable:
+                    msg += f"• `{s}` | السعر: `${pr}` | التقييم: `{sc}%`\n"
                 bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)[:50]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
 
+    # تحليل السهم اليدوي وإمكانية الشراء التجريبي
     symbol_to_check = text.replace("$", "").strip().upper()
     if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
-        bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري تطبيق الاستراتيجيات الثلاث عليه...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🤖 فحص السهم `{symbol_to_check}` وتقييم استراتيجيات التنفيذ...", reply_markup=get_control_keyboard())
         try:
             price, barset = get_fallback_price(symbol_to_check)
             if not price or price <= 0:
-                bot.send_message(chat_id, f"⚠️ عذراً، تعذر جلب بيانات السهم `{symbol_to_check}` في الوقت الحالي.", reply_markup=get_control_keyboard())
+                bot.send_message(chat_id, f"⚠️ تعذر جلب بيانات `{symbol_to_check}`.", reply_markup=get_control_keyboard())
                 return
             
             score, reasons = evaluate_multi_strategies(symbol_to_check, price, barset)
-            
-            target_1 = round(price * 1.25, 2)
-            target_2 = round(price * 1.55, 2)
-            stop_loss = round(price * 0.90, 2)
-            
-            if score >= 60:
-                decision = "🟢 **قرار الاستراتيجيات الثلاث: السهم إيجابي وتجتمع فيه شروط القوة والربحية!**"
-            else:
-                decision = "🔴 **قرار الاستراتيجيات الثلاث: المعايير الفنية غير مكتملة حالياً.**"
-
             reasons_str = "\n".join([f"• {r}" for r in reasons])
 
             analysis_msg = (
-                f"🔬 **تقرير الاستراتيجيات الشامل (JALWE AI):**\n"
+                f"🔬 **التقرير الاستراتيجي للتنفيذ الذاتي:**\n"
                 f"📌 الرمز: `{symbol_to_check}`\n"
-                f"💵 **السعر المعتمد:** `${price}`\n"
-                f"⚡ تقييم الدمج الاستراتيجي: `{score}%`\n\n"
-                f"📋 **تحليل الإشارات الفنية:**\n{reasons_str}\n\n"
-                f"{decision}\n\n"
-                f"📊 **خطة التداول المقترحة:**\n"
-                f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
-                f"• 🎯 الهدف الأول: `${target_1}`\n"
-                f"• 🎯 الهدف الثاني: `${target_2}`\n\n"
-                f"🛡️ *تم حفظ تحليل الاستراتيجيات في الذاكرة للتعلم المستمر.*"
+                f"💵 **السعر:** `${price}`\n"
+                f"⚡ تقييم النظام: `{score}%`\n\n"
+                f"📋 **الأسباب:**\n{reasons_str}\n\n"
             )
+
+            # إذا كان التقييم عالي، يقوم البوت بتنفيذ الشراء آلياً في المحفظة
+            if score >= 75:
+                try:
+                    # حساب كمية بحدود 100 دولار مثلاً أو سهم واحد حسب السيولة
+                    qty_to_buy = max(1, int(100 / price))
+                    alpaca.submit_order(
+                        symbol=symbol_to_check,
+                        qty=qty_to_buy,
+                        side='buy',
+                        type='market',
+                        time_in_force='gtc'
+                    )
+                    analysis_msg += f"🟢 **تم التنفيذ الآلي بنجاح!**\n- تم شراء `{qty_to_buy}` سهم من `{symbol_to_check}` آلياً في محفظتك."
+                except Exception as ex:
+                    analysis_msg += f"⚠️ تعذر إرسال أمر الشراء للمنصة: {str(ex)[:40]}"
+            else:
+                analysis_msg += "🔴 **لم يتم التنفيذ الآلي:** التقييم دون نسبة الحد الأدنى للشراء التلقائي (75%)."
+
             bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
 
-            try:
-                conn = sqlite3.connect("jalwe_learning.db")
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO potential_stocks_snapshots (symbol, entry_price, target_price, score, status) VALUES (?, ?, ?, ?, ?)",
-                    (symbol_to_check, price, target_1, score, "MULTI_STRATEGY_DECISION")
-                )
-                conn.commit()
-                conn.close()
-            except Exception:
-                pass
-
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء تحليل السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ بالتحليل: {str(e)[:40]}", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم صحيح (مثل: `AAPL`).", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم.", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running, last_error
@@ -331,64 +272,48 @@ def main_trading_cycle():
         if not symbols:
             return
             
-        viable_symbols = []
         for sym in symbols:
             price, barset = get_fallback_price(sym)
             if price and 0.25 <= price <= 50.0:
                 score, _ = evaluate_multi_strategies(sym, price, barset)
-                if score >= 65:
-                    viable_symbols.append((sym, price, score))
-
-        if not viable_symbols:
-            return
-
-        sample_targets = random.sample(viable_symbols, min(3, len(viable_symbols)))
-        
-        for sym, price, score in sample_targets:
-            target_1 = round(price * 1.25, 2)
-            target_2 = round(price * 1.55, 2)
-            stop_loss = round(price * 0.90, 2)
-
-            try:
-                conn = sqlite3.connect("jalwe_learning.db")
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO potential_stocks_snapshots (symbol, entry_price, target_price, score, status) VALUES (?, ?, ?, ?, ?)",
-                    (sym, price, target_1, score, "AUTO_MULTI_STRATEGY")
-                )
-                conn.commit()
-                conn.close()
-            except Exception:
-                pass
-
-            alert_msg = (
-                f"💎 **JALWE AI — رصد استراتيجي متكامل**\n"
-                f"📌 الرمز: `{sym}`\n"
-                f"💵 **السعر المعتمد:** `${price}`\n"
-                f"⚡ تقييم الاستراتيجيات الثلاث: `{score}%`\n\n"
-                f"📊 **الخطة السعرية المقترحة:**\n"
-                f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
-                f"• 🎯 الهدف الأول: `${target_1}`\n"
-                f"• 🎯 الهدف الثاني: `${target_2}`\n\n"
-                f"🛡️ *النظام يراقب الفرصة وفق دمج الاستراتيجيات.*"
-            )
-            if TELEGRAM_CHAT_ID:
-                bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
-
+                
+                # إذا وجد فرصة ذهبية نسبتها فوق 80% يشتريها آلياً في الخلفية بدون ما تطلب!
+                if score >= 80:
+                    try:
+                        qty_to_buy = max(1, int(100 / price))
+                        alpaca.submit_order(
+                            symbol=sym,
+                            qty=qty_to_buy,
+                            side='buy',
+                            type='market',
+                            time_in_force='gtc'
+                        )
+                        
+                        alert_msg = (
+                            f"⚡🚨 **تنفيذ آلي ذاتي في الخلفية!**\n"
+                            f"📌 الرمز: `{sym}`\n"
+                            f"💵 سعر الشراء: `${price}`\n"
+                            f"📊 التقييم الذكي: `{score}%`\n"
+                            f"📦 الكمية المشتراة: `{qty_to_buy}` سهم\n\n"
+                            f"🛡️ *تم إرسال أمر الشراء وتنفيذه في الحساب آلياً.*"
+                        )
+                        if TELEGRAM_CHAT_ID:
+                            bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
+                        break # يكتفي بصفقة واحدة في الدورة لضمان الأمان
+                    except Exception:
+                        pass
     except Exception as e:
-        last_error = f"خطأ في الرادار الاستراتيجي: {str(e)[:40]}"
-        print(f"Cycle Error: {e}")
+        last_error = f"خطأ التنفيذ الذاتي: {str(e)[:40]}"
 
 schedule.every(20).minutes.do(main_trading_cycle)
 
 if __name__ == "__main__":
-    print("INFO - JALWE Multi-Strategy Engine is running...")
-    
+    print("INFO - JALWE Autonomous Trading Engine is running...")
     try:
         bot.remove_webhook()
         time.sleep(2)
     except Exception:
-        print("Webhook removal skipped or failed.")
+        pass
 
     import threading
     def schedule_loop():
@@ -403,9 +328,7 @@ if __name__ == "__main__":
     while True:
         try:
             bot.remove_webhook()
-            print("INFO - Starting Telegram Bot polling safely...")
             bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
         except Exception as e:
-            print(f"Polling conflict/error caught: {e}")
-            last_error = f"تعارض مؤقت وتجاوزه: {str(e)[:40]}"
+            last_error = f"تعارض وتم تجاوزه: {str(e)[:40]}"
             time.sleep(10)
