@@ -49,7 +49,7 @@ def handle_commands(message):
 
     if "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل منظومة الذكاء الاصطناعي والاستباق بالكامل.**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل منظومة الذكاء الاصطناعي والاستباق بالكامل بنجاح.**", reply_markup=get_control_keyboard())
     elif "إيقاف البوت" in text:
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
@@ -75,7 +75,7 @@ def handle_commands(message):
                 msg += f"• رمز السهم (Symbol): `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "الرجاء الاختيار من الخيارات أدناه:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "الرجاء الاختيار من القائمة أدناه:", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running
