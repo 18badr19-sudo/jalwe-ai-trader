@@ -3,17 +3,24 @@ class ActiveTradeManager:
         self.alpaca = alpaca_api
 
     def monitor_open_positions(self):
-        """مراقبة الصفقات النشطة وإدارة الخروج الجزئي أو الوقف المتحرك"""
         try:
             positions = self.alpaca.list_positions()
             for pos in positions:
                 symbol = pos.symbol
                 current_price = float(pos.current_price)
                 avg_entry = float(pos.avg_entry_price)
+                qty = float(pos.qty)
                 profit_pct = (current_price - avg_entry) / avg_entry
                 
-                # إدارة متقدمة: إذا تجاوز الربح 4%، يتم إرسال تنبيه أو ضبط حماية للصفقة
-                if profit_pct >= 0.04:
-                    print(f"Target 1 reached for {symbol}! Managing trailing/partial exit.")
+                if profit_pct >= 0.05 and qty > 1:
+                    sell_qty = int(qty / 2)
+                    self.alpaca.submit_order(
+                        symbol=symbol,
+                        qty=sell_qty,
+                        side='sell',
+                        type='market',
+                        time_in_force='gtc'
+                    )
+                    print(f"ActiveTradeManager: Partial take profit executed for {symbol} at +5%")
         except Exception as e:
-            print(f"Error in Trade Manager: {e}")
+            print(f"Error in ActiveTradeManager: {e}")
