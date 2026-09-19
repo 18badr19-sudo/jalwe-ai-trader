@@ -23,7 +23,6 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
-# تهيئة قاعدة البيانات المحلية الدائمة لحفظ الذاكرة والتعلم الذاتي
 def init_db():
     conn = sqlite3.connect("jalwe_learning.db")
     cursor = conn.cursor()
@@ -84,7 +83,6 @@ def handle_messages(message):
     text = message.text.strip() if message.text else ""
     chat_id = message.chat.id
 
-    # الأوامر الرئيسية للتحكم عبر أزرار القائمة
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
         bot.send_message(chat_id, "🟢 **تم تفعيل المحلل المستقل والرادار الاستباقي بنجاح.**", reply_markup=get_control_keyboard())
@@ -211,7 +209,6 @@ def handle_messages(message):
             bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)}", reply_markup=get_control_keyboard())
         return
 
-    # إذا أرسل المستخدم رمز سهم أو كتابة بخلاف الأزرار، سيتم جلب سعره وفحصه فوراً
     symbol_to_check = text.replace("$", "").strip().upper()
     if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
         bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري جلب سعره الفوري وفحصه...", reply_markup=get_control_keyboard())
@@ -336,25 +333,25 @@ if __name__ == "__main__":
     try:
         bot.remove_webhook()
         time.sleep(2)
-    except Exception:
-        pass
+    exceptException:
+        print("Webhook removal skipped or failed.")
 
     import threading
     def schedule_loop():
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
+        while Time:
+            Schedule.run_pending()
+            Time.sleep(1)
 
-    t = threading.Thread(target=schedule_loop)
-    t.daemon = True
-    t.start()
+    T = threading.Thread(target=schedule_loop)
+    T.daemon = True
+    T.start()
 
-    while True:
-        try:
-            bot.remove_webhook()
-            print("INFO - Starting Telegram Bot polling safely...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
-        except Exception as e:
-            print(f"Polling conflict/error caught: {e}")
-            last_error = f"تعارض مؤقت وتجاوزه: {str(e)[:40]}"
-            time.sleep(10)
+    While True:
+        Try:
+            Bot.remove_webhook()
+            Print("INFO - Starting Telegram Bot polling safely...")
+            Bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
+        Except Exception as e:
+            Print(f"Polling conflict/error caught: {e}")
+            Last_error = f"تعارض مؤقت وتجاوزه: {str(e)[:40]}"
+            Time.sleep(10)
