@@ -82,10 +82,8 @@ def main_trading_cycle():
     if not bot_running:
         return
     try:
-        # إدارة الصفقات النشطة أولاً
         trade_manager.monitor_open_positions()
         
-        # فحص السوق للفرص الاستباقية
         symbols = pre_engine.scan_entire_market()
         import random
         sample_symbols = random.sample(symbols, min(5, len(symbols)))
@@ -98,7 +96,6 @@ def main_trading_cycle():
             evaluation = pre_engine.evaluate_pre_breakout(metrics)
             metrics.update(evaluation)
             
-            # حفظ اللقطة في قاعدة البيانات للتعلم الذاتي
             learning_engine.save_feature_snapshot(sym, metrics)
             
             if evaluation["status"] in ["CONFIRMED", "ENTRY"]:
@@ -132,6 +129,7 @@ schedule.every(15).minutes.do(main_trading_cycle)
 
 if __name__ == "__main__":
     print("INFO - JALWE AI Ultimate Fully Autonomous Engine is running...")
+    
     try:
         bot.remove_webhook()
         time.sleep(2)
@@ -148,10 +146,13 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
 
+    # حلقة آمنة بالكامل للتعامل التلقائي مع أخطاء التعارض (409) وإعادة الاتصال
     while True:
         try:
             bot.remove_webhook()
-            last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
-            bot.infinity_polling(timeout=30, long_polling_timeout=15, skip_pending=True)
-        except Exception:
-            time.sleep(5)
+            print("INFO - Starting Telegram Bot polling safely...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
+        except Exception as e:
+            print(f"Polling conflict/error caught: {e}")
+            last_error = f"تم تجاوز تارض مؤقت وإعادة الاتصال: {str(e)[:40]}"
+            time.sleep(10)
