@@ -80,10 +80,18 @@ def handle_messages(message):
     text = message.text.strip()
     chat_id = message.chat.id
 
-    # 1. التحقق أولاً وقبل كل شيء: هل النص المرسل عبارة عن رمز سهم؟ (ليتم فحصه فوراً دون الذهاب للقائمة)
-    clean_text = text.replace("$", "").strip()
-    if len(clean_text) <= 6 and clean_text.isalnum() and not any(cmd in text for cmd in ["تشغيل", "إيقاف", "فحص", "أسعار", "تقرير"]):
-        symbol_to_check = clean_text.upper()
+    # قائمة الأزرار المعروفة في لوحة التحكم
+    known_buttons = [
+        "🟢 تشغيل الرادار المستقل", "تشغيل البوت المتعلم", 
+        "🛑 إيقاف البوت", 
+        "🔍 فحص نموذج التعلم الذاتي", "فحص نموذج التعلم الآلي", 
+        "📊 فحص السوق حالياً", "أسعار الأسهم",
+        "⚠️ تقرير النظام والأخطاء", "فحص الأخطاء والنظام"
+    ]
+
+    # إذا لم تكن الرسالة زراً من الأزرار، إذن هي رمز سهم يتم فحصه مباشرة!
+    if text not in known_buttons:
+        symbol_to_check = text.replace("$", "").strip().upper()
         bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري فحصه ودراسة جدواه واتخاذ القرار بشأنه...", reply_markup=get_control_keyboard())
         try:
             metrics = pre_engine.calculate_metrics(symbol_to_check)
@@ -133,9 +141,9 @@ def handle_messages(message):
 
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء معالجة السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
-        return  # إيقاف التنفيذ هنا تماماً حتى لا ينزل لقاعدة القائمة
+        return
 
-    # 2. الأوامر الرئيسية للتحكم عبر الأزرار
+    # الأوامر الرئيسية للتحكم عبر الأزرار
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
         bot.send_message(chat_id, "🟢 **تم تفعيل المحلل المستقل والرادار الاستباقي بنجاح.**", reply_markup=get_control_keyboard())
@@ -186,9 +194,6 @@ def handle_messages(message):
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)}", reply_markup=get_control_keyboard())
         return
-
-    # الرد الافتراضي في حال لم يكن زر أو رمز سهم
-    bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم (مثل: `AAPL`) ليتولى البوت فحصه واتخاذ قراره بشأنه.", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running, last_error
