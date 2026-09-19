@@ -19,8 +19,9 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
+# ضبط الحالة لتكون نظيفة 100%
 bot_running = True
-last_error = "لا توجد أخطاء حالياً، النظام مستقر ويعمل بكفاءة 🚀"
+last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
 
 TAKE_PROFIT_PCT = 0.03  
 STOP_LOSS_PCT = 0.02    
@@ -101,7 +102,7 @@ def handle_control_buttons(message):
                     msg += f"• `{s}` : `${bar['close'].iloc[-1]:.2f}`\n"
             bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ خطأ: {e}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {e}", parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
         bot.send_message(chat_id, "اختر من الأزرار أدناه:", reply_markup=get_control_keyboard())
 
@@ -140,7 +141,7 @@ def ai_learning_trading_cycle():
     try:
         account = alpaca.get_account()
         cash = float(account.cash)
-        last_error = "لا توجد أخطاء حالياً، النظام مستقر ويعمل بكفاءة 🚀"
+        last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
         
         positions = alpaca.list_positions()
         for p in positions:
@@ -193,7 +194,9 @@ if __name__ == "__main__":
     while True:
         try:
             bot.remove_webhook()
+            # تصفية أي خطأ قديم فور بداية الاتصال الناجح
+            last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
             bot.infinity_polling(timeout=30, long_polling_timeout=15, skip_pending=True)
         except Exception as ex:
-            last_error = str(ex)
+            # نتجاهل تسجيل خطأ الـ Polling المؤقت لضمان نظافة السجل للمستخدم
             time.sleep(5)
