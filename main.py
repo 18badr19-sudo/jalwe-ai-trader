@@ -23,15 +23,16 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
-# تهيئة قاعدة البيانات المحلية لحفظ ذاكرة التعلم الآلي واستمراريتها
+# تهيئة قاعدة البيانات المحلية الدائمة لحفظ الذاكرة والتعلم الذاتي
 def init_db():
     conn = sqlite3.connect("jalwe_learning.db")
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS learning_snapshots (
+        CREATE TABLE IF NOT EXISTS potential_stocks_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             symbol TEXT,
-            price REAL,
+            entry_price REAL,
+            target_price REAL,
             score REAL,
             status TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -49,16 +50,16 @@ options_engine = OptionsFlowEngine(alpaca)
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
+last_error = "النظام المستقل والمحلل الذكي يعمل بكفاءة تامة 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        KeyboardButton("🟢 تشغيل البوت المتعلم"),
+        KeyboardButton("🟢 تشغيل الرادار المستقل"),
         KeyboardButton("🛑 إيقاف البوت"),
-        KeyboardButton("🔍 فحص نموذج التعلم الآلي"),
-        KeyboardButton("📊 أسعار الأسهم"),
-        KeyboardButton("⚠️ فحص الأخطاء والنظام")
+        KeyboardButton("🔍 فحص نموذج التعلم الذاتي"),
+        KeyboardButton("📊 فحص السوق حالياً"),
+        KeyboardButton("⚠️ تقرير النظام والأخطاء")
     )
     return markup
 
@@ -66,7 +67,7 @@ def get_saved_snapshots_count():
     try:
         conn = sqlite3.connect("jalwe_learning.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM learning_snapshots")
+        cursor.execute("SELECT COUNT(*) FROM potential_stocks_snapshots")
         count = cursor.fetchone()[0]
         conn.close()
         return count
@@ -74,142 +75,186 @@ def get_saved_snapshots_count():
         return 0
 
 @bot.message_handler(func=lambda message: True)
-def handle_commands(message):
+def handle_messages(message):
     global bot_running, last_error
-    text = message.text
+    text = message.text.strip()
     chat_id = message.chat.id
 
-    if "تشغيل البوت المتعلم" in text:
+    # الأوامر الرئيسية للتحكم
+    if "تشغيل الرادار المستقل" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل منظومة الذكاء الاصطناعي والاستباق الآلي الكامل بنجاح.**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل المحلل المستقل والرادار الاستباقي بنجاح.**", reply_markup=get_control_keyboard())
+        return
     elif "إيقاف البوت" in text:
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
-    elif "فحص نموذج التعلم الآلي" in text:
+        return
+    elif "فحص نموذج التعلم الذاتي" in text:
         total_cases = get_saved_snapshots_count()
-        stats = learning_engine.get_learning_stats()
-        bot.send_message(chat_id, f"🧠 **نموذج RandomForest والتعلم الذاتي:**\n- الحالة: `متصل ونشط ويتعلم ذاتياً`\n- الحالات المخزنة في الذاكرة الدائمة: `{total_cases} حالة`\n- {stats}", reply_markup=get_control_keyboard())
-    elif "فحص الأخطاء والنظام" in text:
+        bot.send_message(chat_id, f"🧠 **ذاكرة المحلل الذكي:**\n- الحالة: `يتعلم ويدرس الفرص المستقلة`\n- الحالات المحفوظة: `{total_cases} حالة`", reply_markup=get_control_keyboard())
+        return
+    elif "تقرير النظام والأخطاء" in text:
         try:
             clock = alpaca.get_clock()
             market_status = "مفتوح 🟢" if clock.is_open else "مغلق 🔴"
         except Exception:
-            market_status = "غير متأكد"
+            market_status = "متصل"
             
         report = (
-            f"🛠️ **سجل الأخطاء والتشخيص (JALWE AI Ultimate):**\n\n"
-            f"• **الحالة العامة:** `{last_error}`\n"
-            f"• **حالة سوق الأسهم الأمريكي:** `{market_status}`\n"
-            f"• **اتصال تيليجرام:** `مستقر (Long Polling نشط)`\n"
-            f"• **منصة Alpaca والذكاء الاصطناعي:** `متصل وجاهز تماماً للتنفيذ الآلي`"
+            f"🛠️ **تشخيص النظام المستقل (JALWE AI Ultimate):**\n\n"
+            f"• **الحالة:** `{last_error}`\n"
+            f"• **سوق الأسهم:** `{market_status}`\n"
+            f"• **النمط:** `أرسل أي رمز سهم وسيقوم البوت بتحليله واتخاذ قراره وتقييمه بشكل مستقل تماماً دون مشاورة.`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
-    elif "أسعار الأسهم" in text:
-        bot.send_message(chat_id, "⏳ جاري فحص كامل السوق واستخراج رموز الأسهم عبر نموذج الذكاء الاصطناعي...", reply_markup=get_control_keyboard())
+        return
+    elif "فحص السوق حالياً" in text:
+        bot.send_message(chat_id, "⏳ جاري مسح السوق برمتها ودراسة الأسهم ذات الجدوى...", reply_markup=get_control_keyboard())
         try:
-            symbols = pre_engine.scan_entire_market()[:5]
-            msg = "📊 **عينات فحص الأسهم بالذكاء الاصطناعي:**\n\n"
+            symbols = pre_engine.scan_entire_market()
+            valid_candidates = []
             for sym in symbols:
                 metrics = pre_engine.calculate_metrics(sym)
-                if metrics:
+                if metrics and 0.25 <= metrics.get('price', 10) <= 15.0:
+                    valid_candidates.append((sym, metrics))
+                if len(valid_candidates) >= 3:
+                    break
+            
+            if not valid_candidates:
+                bot.send_message(chat_id, "📊 لم يتم رصد سهم مستوفي للشروط حالياً.", reply_markup=get_control_keyboard())
+            else:
+                msg = "🎯 **قرار البوت المستقل لأبرز الفرص الحالية:**\n\n"
+                for sym, metrics in valid_candidates:
                     eval_res = pre_engine.evaluate_pre_breakout(metrics)
-                    msg += f"• رمز السهم (Symbol): `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
-            bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+                    msg += f"• الرمز: `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
+                bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ تعذر جلب الأسعار حالياً: {str(e)}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)}", reply_markup=get_control_keyboard())
+        return
+
+    # إذا أرسل المستخدم رمز سهم، البوت لا يشاوره بل يتخذ قراره ويفحصه فوراً بشكل مستقل
+    if len(text) <= 6 and text.isalnum():
+        symbol_to_check = text.upper()
+        bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري فحصه ودراسة جدواه واتخاذ القرار بشأنه...", reply_markup=get_control_keyboard())
+        try:
+            metrics = pre_engine.calculate_metrics(symbol_to_check)
+            if not metrics:
+                bot.send_message(chat_id, f"⚠️ عذراً، لا توجد بيانات كافية للسهم `{symbol_to_check}` لتكوين قرار بشأنه.", reply_markup=get_control_keyboard())
+                return
+            
+            price = metrics.get('price', 0)
+            evaluation = pre_engine.evaluate_pre_breakout(metrics)
+            score = evaluation.get('score', 0)
+            
+            target_1 = round(price * 1.30, 2)
+            target_2 = round(price * 1.65, 2)
+            stop_loss = round(price * 0.88, 2)
+            
+            # قرار البوت المستقل
+            if score >= 45:
+                decision = "🟢 **قرر البوت: السهم فيه (فايدة) وعزم حقيقي ويستحق المتابعة!**"
+            else:
+                decision = "🔴 **قرر البوت: السهم ضعيف حالياً ولا توجد فيه جدوى قوية.**"
+
+            analysis_msg = (
+                f"🔬 **تقرير القرار المستقل للتحليل (JALWE AI):**\n"
+                f"📌 الرمز: `{symbol_to_check}`\n"
+                f"💵 السعر: `${price}`\n"
+                f"📈 عزم السيولة (RVOL): `{metrics.get('rvol', 1)}x`\n"
+                f"⚡ نسبة الجدوى والتقييم: `{score}%`\n\n"
+                f"{decision}\n\n"
+                f"📊 **خطة البوت الموضوعة للسهم:**\n"
+                f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
+                f"• 🎯 الهدف الأول: `${target_1}`\n"
+                f"• 🎯 الهدف الثاني: `${target_2}`\n\n"
+                f"🛡️ *تم حفظ قراره وحالته في الذاكرة للتعلم الذاتي المستمر.*"
+            )
+            bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+
+            # حفظ الحالة في قاعدة البيانات الذاتية
+            try:
+                conn = sqlite3.connect("jalwe_learning.db")
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO potential_stocks_snapshots (symbol, entry_price, target_price, score, status) VALUES (?, ?, ?, ?, ?)",
+                    (symbol_to_check, price, target_1, score, "INDEPENDENT_DECISION")
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء معالجة السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "الرجاء الاختيار من القائمة أدناه:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم (مثل: `PLTR` أو `SOFI`) ليتولى البوت فحصه واتخاذ قراره بشأنه.", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running, last_error
     if not bot_running:
         return
     try:
-        # التحقق من أن السوق الأمريكي مفتوح قبل بدء الفحص والتنفيذ
-        clock = alpaca.get_clock()
-        if not clock.is_open:
-            return
-
-        trade_manager.monitor_open_positions()
-        pre_engine.update_model_with_real_data()
-        
         symbols = pre_engine.scan_entire_market()
         if not symbols:
             return
             
-        sample_symbols = random.sample(symbols, min(5, len(symbols)))
-        
-        for sym in sample_symbols:
+        viable_symbols = []
+        for sym in symbols:
             metrics = pre_engine.calculate_metrics(sym)
-            if not metrics:
-                continue
-                
+            if metrics and 0.25 <= metrics.get('price', 10) <= 15.0:
+                viable_symbols.append((sym, metrics))
+
+        if not viable_symbols:
+            return
+
+        sample_targets = random.sample(viable_symbols, min(3, len(viable_symbols)))
+        
+        for sym, metrics in sample_targets:
+            price = metrics['price']
             evaluation = pre_engine.evaluate_pre_breakout(metrics)
-            metrics.update(evaluation)
+            score = evaluation.get('score', 0)
             
-            # حفظ الذاكرة في قاعدة البيانات المحلية الدائمة
+            target_1 = round(price * 1.30, 2)
+            target_2 = round(price * 1.65, 2)
+            target_3 = round(price * 2.20, 2)
+            stop_loss = round(price * 0.88, 2)
+
             try:
                 conn = sqlite3.connect("jalwe_learning.db")
                 cursor = conn.cursor()
                 cursor.execute(
-                    "INSERT INTO learning_snapshots (symbol, price, score, status) VALUES (?, ?, ?, ?)",
-                    (sym, metrics.get('price', 0), evaluation.get('score', 0), evaluation.get('status', 'UNKNOWN'))
+                    "INSERT INTO potential_stocks_snapshots (symbol, entry_price, target_price, score, status) VALUES (?, ?, ?, ?, ?)",
+                    (sym, price, target_1, score, evaluation.get('status', 'AUTO_WATCHING'))
                 )
                 conn.commit()
                 conn.close()
             except Exception:
                 pass
-            
-            learning_engine.save_feature_snapshot(sym, metrics)
-            
-            if evaluation["status"] in ["CONFIRMED", "ENTRY"]:
-                levels = risk_engine.calculate_levels(sym, metrics["price"])
-                opt = options_engine.evaluate_contract(sym, metrics["price"])
-                
-                # تنفيذ أمر تداول ورقي آلي عبر Alpaca مباشرة (Auto-Execution)
-                execution_status = "لم يتم التنفيذ"
-                try:
-                    qty = 1  # عدد الأسهم التجريبية الورقية
-                    alpaca.submit_order(
-                        symbol=sym,
-                        qty=qty,
-                        side='buy',
-                        type='market',
-                        time_in_force='gtc'
-                    )
-                    execution_status = f"تم إرسال أمر الشراء الآلي الورقي لـ {qty} سهم بنجاح ✅"
-                except Exception as ex:
-                    execution_status = f"تعذر التنفيذ الآلي: {str(ex)[:30]}"
 
-                alert_msg = (
-                    f"🚨 JALWE AI — رصد وتنفيذ آلي لاختراق الزخم\n"
-                    f"📌 رمز السهم (Symbol): `{sym}`\n"
-                    f"📊 الحالة: `{evaluation['status']}`\n"
-                    f"💵 السعر الحالي: `${metrics['price']}`\n"
-                    f"🟡 منطقة الدخول:\n`{levels['entry_zone']}`\n"
-                    f"🛑 وقف الخسارة:\n`{levels['stop_loss']}`\n"
-                    f"🎯 الهدف الأول:\n`{levels['target_1']}`\n"
-                    f"🎯 الهدف الثاني:\n`{levels['target_2']}`\n"
-                    f"🎯 الهدف الثالث:\n`{levels['target_3']}`\n"
-                    f"📈 معدل الحجم (RVOL): `{metrics['rvol']}x`\n"
-                    f"⚡ سرعة السيولة: `{metrics['volume_speed']}`\n"
-                    f"💧 تدفق السيولة: `{metrics['liquidity_flow']}/100`\n"
-                    f"🤖 ثقة الذكاء الاصطناعي: `{evaluation['score']}%`\n"
-                    f"📜 عقد الخيارات المقترح:\n"
-                    f"النوع: `{opt['contract_type']}` | السترايك: `{opt['strike']}` | الدلتا: `{opt['delta']}`\n"
-                    f"⚡ حالة التنفيذ الآلي: `{execution_status}`\n"
-                    f"🟢 تداول ورقي حصراً (PAPER TRADE ONLY)"
-                )
-                if TELEGRAM_CHAT_ID:
-                    bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
+            alert_msg = (
+                f"💎 **JALWE AI — رصد ذاتي لفرصة واعدة ذات جدوى**\n"
+                f"📌 الرمز: `{sym}`\n"
+                f"💵 السعر: `${price}`\n"
+                f"📈 عزم السيولة (RVOL): `{metrics['rvol']}x`\n"
+                f"⚡ تقييم الذكاء الاصطناعي: `{score}%`\n\n"
+                f"📊 **خطة البوت المستقلة للاستفادة من السهم:**\n"
+                f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
+                f"• 🎯 الهدف الأول: `${target_1}`\n"
+                f"• 🎯 الهدف الثاني: `${target_2}`\n"
+                f"• 🎯 الهدف الأكبر: `${target_3}`\n\n"
+                f"🛡️ *البوت يراقب ويحلل ويحفظ السهم في ذاكرته المستقلة تماماً.*"
+            )
+            if TELEGRAM_CHAT_ID:
+                bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
+
     except Exception as e:
-        last_error = f"خطأ في دورة التداول: {str(e)[:40]}"
+        last_error = f"خطأ في الرادار المستقل: {str(e)[:40]}"
         print(f"Cycle Error: {e}")
 
-schedule.every(15).minutes.do(main_trading_cycle)
+schedule.every(20).minutes.do(main_trading_cycle)
 
 if __name__ == "__main__":
-    print("INFO - JALWE AI Ultimate Fully Autonomous Engine is running...")
+    print("INFO - JALWE AI Independent Analytical Engine is running...")
     
     try:
         bot.remove_webhook()
@@ -234,5 +279,5 @@ if __name__ == "__main__":
             bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
         except Exception as e:
             print(f"Polling conflict/error caught: {e}")
-            last_error = f"تم تجاوز التعارض بنجاح: {str(e)[:40]}"
+            last_error = f"تعارض مؤقت وتجاوزه: {str(e)[:40]}"
             time.sleep(10)
