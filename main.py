@@ -56,7 +56,7 @@ def handle_commands(message):
     elif "فحص نموذج التعلم الآلي" in text:
         stats = learning_engine.get_learning_stats()
         bot.send_message(chat_id, f"🧠 **نموذج RandomForest والتعلم الذاتي:**\n- الحالة: `متصل ونشط ويتعلم ذاتياً`\n- {stats}", reply_markup=get_control_keyboard())
-    elif "⚠️ فحص الأخطاء والنظام" in text:
+    elif "فحص الأخطاء والنظام" in text:
         report = (
             f"🛠️ **سجل الأخطاء والتشخيص (JALWE AI Ultimate):**\n\n"
             f"• **الحالة:** `{last_error}`\n"
@@ -67,12 +67,12 @@ def handle_commands(message):
     elif "أسعار الأسهم" in text:
         bot.send_message(chat_id, "⏳ جاري فحص كامل السوق واستخراج رموز الأسهم عبر نموذج الذكاء الاصطناعي...", reply_markup=get_control_keyboard())
         symbols = pre_engine.scan_entire_market()[:5]
-        msg = "📊 **رموز الأسهم وعينات فحص الذكاء الاصطناعي (Pre-Breakout):**\n\n"
+        msg = "📊 **عينات فحص الأسهم بالذكاء الاصطناعي:**\n\n"
         for sym in symbols:
             metrics = pre_engine.calculate_metrics(sym)
             if metrics:
                 eval_res = pre_engine.evaluate_pre_breakout(metrics)
-                msg += f"• Stock Symbol: `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
+                msg += f"• رمز السهم (Symbol): `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
         bot.send_message(chat_id, "الرجاء الاختيار من الأزرار أدناه:", reply_markup=get_control_keyboard())
@@ -104,8 +104,8 @@ def main_trading_cycle():
                 opt = options_engine.evaluate_contract(sym, metrics["price"])
                 
                 alert_msg = (
-                    f"🚨 JALWE AI — MOMENTUM BREAKOUT\n"
-                    f"📌 Stock Symbol: `{sym}`\n"
+                    f"🚨 JALWE AI — رصد اختراق الزخم\n"
+                    f"📌 رمز السهم (Symbol): `{sym}`\n"
                     f"📊 الحالة: `{evaluation['status']}`\n"
                     f"💵 السعر الحالي: `${metrics['price']}`\n"
                     f"🟡 منطقة الدخول:\n`{levels['entry_zone']}`\n"
@@ -113,7 +113,7 @@ def main_trading_cycle():
                     f"🎯 الهدف الأول:\n`{levels['target_1']}`\n"
                     f"🎯 الهدف الثاني:\n`{levels['target_2']}`\n"
                     f"🎯 الهدف الثالث:\n`{levels['target_3']}`\n"
-                    f"📈 RVOL: `{metrics['rvol']}x`\n"
+                    f"📈 معدل الحجم (RVOL): `{metrics['rvol']}x`\n"
                     f"⚡ سرعة السيولة: `{metrics['volume_speed']}`\n"
                     f"💧 تدفق السيولة: `{metrics['liquidity_flow']}/100`\n"
                     f"🤖 ثقة الذكاء الاصطناعي: `{evaluation['score']}%`\n"
