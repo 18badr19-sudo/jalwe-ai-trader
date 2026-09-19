@@ -333,25 +333,25 @@ if __name__ == "__main__":
     try:
         bot.remove_webhook()
         time.sleep(2)
-    exceptException:
+    except Exception:
         print("Webhook removal skipped or failed.")
 
     import threading
     def schedule_loop():
-        while Time:
-            Schedule.run_pending()
-            Time.sleep(1)
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
 
-    T = threading.Thread(target=schedule_loop)
-    T.daemon = True
-    T.start()
+    t = threading.Thread(target=schedule_loop)
+    t.daemon = True
+    t.start()
 
-    While True:
-        Try:
-            Bot.remove_webhook()
-            Print("INFO - Starting Telegram Bot polling safely...")
-            Bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
-        Except Exception as e:
-            Print(f"Polling conflict/error caught: {e}")
-            Last_error = f"تعارض مؤقت وتجاوزه: {str(e)[:40]}"
-            Time.sleep(10)
+    while True:
+        try:
+            bot.remove_webhook()
+            print("INFO - Starting Telegram Bot polling safely...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
+        except Exception as e:
+            print(f"Polling conflict/error caught: {e}")
+            last_error = f"تعارض مؤقت وتجاوزه: {str(e)[:40]}"
+            time.sleep(10)
