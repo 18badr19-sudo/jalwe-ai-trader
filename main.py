@@ -9,6 +9,7 @@ from pre_breakout_engine import PreBreakoutEngine
 from target_risk_engine import TargetRiskEngine
 from options_flow_engine import OptionsFlowEngine
 from chart_and_learning_engine import ChartAndLearningEngine
+from active_trade_manager import ActiveTradeManager
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -20,11 +21,11 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
-# تهيئة المحركات الاحترافية
 pre_engine = PreBreakoutEngine(alpaca)
 risk_engine = TargetRiskEngine(alpaca)
 options_engine = OptionsFlowEngine(alpaca)
 learning_engine = ChartAndLearningEngine()
+trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
 last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
@@ -48,28 +49,30 @@ def handle_commands(message):
 
     if "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل محرك Pre-Breakout الذكي بالكامل بنجاح.**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل منظومة الذكاء الاصطناعي والاستباق بالكامل.**", reply_markup=get_control_keyboard())
     elif "إيقاف البوت" in text:
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
     elif "فحص نموذج التعلم الآلي" in text:
-        bot.send_message(chat_id, "🧠 **محرك الاستباق والاكتشاف المبكر يعمل بأقصى كفاءة.**", reply_markup=get_control_keyboard())
+        stats = learning_engine.get_learning_stats()
+        bot.send_message(chat_id, f"🧠 **نموذج RandomForest والتعلم الذاتي:**\n- الحالة: `متصل ونشط`\n- {stats}", reply_markup=get_control_keyboard())
     elif "⚠️ فحص الأخطاء والنظام" in text:
         report = (
             f"🛠️ **سجل الأخطاء والتشخيص (JALWE AI Ultimate):**\n\n"
             f"• **الحالة:** `{last_error}`\n"
             f"• **اتصال تيليجرام:** `مستقر (Long Polling نشط بدون 409)`\n"
-            f"• **منصة Alpaca:** `متصل وجاهز للاستباق`"
+            f"• **منصة Alpaca ومحرك الذكاء الاصطناعي:** `متصل وجاهز تماماً`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
     elif "أسعار الأسهم" in text:
-        bot.send_message(chat_id, "⏳ جاري فحص كامل السوق الأمريكي عبر رادار Pre-Breakout...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "⏳ جاري فحص كامل السوق عبر نموذج الذكاء الاصطناعي...", reply_markup=get_control_keyboard())
         symbols = pre_engine.scan_entire_market()[:5]
-        msg = "📊 **عينات فحص السوق الحر (Pre-Breakout Watch):**\n\n"
+        msg = "📊 **عينات فحص الذكاء الاصطناعي (Pre-Breakout):**\n\n"
         for sym in symbols:
             metrics = pre_engine.calculate_metrics(sym)
             if metrics:
-                msg += f"• `{sym}` | السعر: `${metrics['price']}` | RVOL: `{metrics['rvol']}x`\n"
+                eval_res = pre_engine.evaluate_pre_breakout(metrics)
+                msg += f"• `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
         bot.send_message(chat_id, "اختر من الأزرار أدناه:", reply_markup=get_control_keyboard())
@@ -79,8 +82,11 @@ def main_trading_cycle():
     if not bot_running:
         return
     try:
+        # إدارة الصفقات النشطة أولاً
+        trade_manager.monitor_open_positions()
+        
+        # فحص السوق للفرص الاستباقية
         symbols = pre_engine.scan_entire_market()
-        # اختيار عينة عشوائية ذكية للفحص العميق
         import random
         sample_symbols = random.sample(symbols, min(5, len(symbols)))
         
@@ -92,10 +98,9 @@ def main_trading_cycle():
             evaluation = pre_engine.evaluate_pre_breakout(metrics)
             metrics.update(evaluation)
             
-            # حفظ لقطة لكل حالة تظهر في السوق
+            # حفظ اللقطة في قاعدة البيانات للتعلم الذاتي
             learning_engine.save_feature_snapshot(sym, metrics)
             
-            # إذا وصل إلى مرحلة متقدمة (ENTRY أو CONFIRMED)
             if evaluation["status"] in ["CONFIRMED", "ENTRY"]:
                 levels = risk_engine.calculate_levels(sym, metrics["price"])
                 opt = options_engine.evaluate_contract(sym, metrics["price"])
@@ -126,7 +131,7 @@ def main_trading_cycle():
 schedule.every(15).minutes.do(main_trading_cycle)
 
 if __name__ == "__main__":
-    print("INFO - JALWE AI Ultimate Pre-Breakout Engine is running...")
+    print("INFO - JALWE AI Ultimate Fully Autonomous Engine is running...")
     try:
         bot.remove_webhook()
         time.sleep(2)
