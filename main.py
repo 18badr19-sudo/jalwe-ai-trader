@@ -75,7 +75,7 @@ def handle_commands(message):
                 msg += f"• رمز السهم (Symbol): `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "الرجاء الاختيار من الأزرار أدناه:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "الرجاء الاختيار من الخيارات أدناه:", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running
