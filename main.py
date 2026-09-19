@@ -37,17 +37,17 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # جدول متتبع الصفقات النشطة للوقف المتحرك وتعظيم الأرباح
+    # جدول متتبع الصفقات النشطة محدث لدعم وقف الخسارة المتحرك والذكي
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS active_trades_tracker (
             symbol TEXT PRIMARY KEY,
             entry_price REAL,
+            stop_loss_price REAL,
             highest_price REAL,
             qty INTEGER,
             status TEXT
         )
     """)
-    # جدول سجل التعلم الذاتي وإغلاق الحلقة (Closed-Loop Feedback) للأداء
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS closed_trades_performance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +71,7 @@ options_engine = OptionsFlowEngine(alpaca)
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "النظام الذكي للتعلم الذاتي وتعظيم الأرباح يعمل بكفاءة 🚀"
+last_error = "النظام الذكي لتحدي التدوير والوقف المتحرك يعمل بكفاءة 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -118,7 +118,6 @@ def evaluate_momentum_and_strategies(symbol, price, barset):
     score = 50
     reasons = []
 
-    # ضبط النقاط بناءً على ذاكرة التعلم الذاتي السابقة للرمز إن وجدت
     try:
         conn = sqlite3.connect("jalwe_learning.db")
         cursor = conn.cursor()
@@ -167,7 +166,7 @@ def handle_messages(message):
 
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل رادار التعلم الذاتي وتلك الأرباح بالكامل.**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل رادار تحدي التدوير التراكمي والوقف الذكي.**", reply_markup=get_control_keyboard())
         return
     elif "إيقاف البوت" in text:
         bot_running = False
@@ -182,9 +181,9 @@ def handle_messages(message):
             account = alpaca.get_account()
             positions = alpaca.list_positions()
             portfolio_msg = (
-                f"💼 **تقرير محفظتك الاستثمارية اللحظية:**\n\n"
+                f"💼 **تقرير محفظة التحدي اللحظية:**\n\n"
                 f"💵 **السيولة (Cash):** `${float(account.cash):,.2f}`\n"
-                f"💰 **إجمالي الحساب:** `${float(account.portfolio_value):,.2f}`\n\n"
+                f"💰 **إجمالي الحساب (Equity):** `${float(account.portfolio_value):,.2f}`\n\n"
                 f"📦 **الأسهم المملوكة حالياً:**\n"
             )
             if not positions:
@@ -234,13 +233,13 @@ def handle_messages(message):
         except Exception:
             closed_count, avg_win = 0, 0.0
 
-        bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي المغلق (Closed-Loop ML):**\n- الحالات المسجلة بالرادار: `{total}`\n- الصفقات المغلقة والمحللة ذاتياً: `{closed_count}`\n- متوسط أداء التعلم: `{avg_win:.2f}%`\n- الحالة: `نشط ويتعلم من نتائج كل صفقة تخرج وتدخل.`", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي والتدوير:**\n- الحالات المسجلة بالرادار: `{total}`\n- الصفقات المغلقة: `{closed_count}`\n- متوسط أداء التعلم: `{avg_win:.2f}%`\n- الاستراتيجية: `تدوير الأرباح بالكامل + تنويع عند 200$ + وقف خسارة متحرك.`", reply_markup=get_control_keyboard())
         return
     elif "تقرير النظام والأخطاء" in text:
         bot.send_message(chat_id, f"🛠️ **التشخيص:**\n{last_error}\nالوضع: `تشغيل ذاتي بالذكاء الاصطناعي 24/7`", reply_markup=get_control_keyboard())
         return
     elif "فحص السوق حالياً" in text:
-        bot.send_message(chat_id, "⏳ جاري فحص السوق وتطبيق معايير التعلم الذاتي الحالية...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "⏳ جاري فحص السوق وتطبيق معايير تحدي التدوير...", reply_markup=get_control_keyboard())
         try:
             symbols = pre_engine.scan_entire_market()
             viable = []
@@ -253,9 +252,9 @@ def handle_messages(message):
                 if len(viable) >= 3:
                     break
             if not viable:
-                bot.send_message(chat_id, "📊 لم تتطابق شروط التعلم الذاتي مع أي سهم حالياً.", reply_markup=get_control_keyboard())
+                bot.send_message(chat_id, "📊 لم تتطابق الشروط مع أي سهم حالياً.", reply_markup=get_control_keyboard())
             else:
-                msg = "🚀 **الفرص المرشحة وفق ذاكرة التعلم الذاتي:**\n\n"
+                msg = "🚀 **الفرص المرشحة لتحدي التدوير:**\n\n"
                 for s, pr, sc in viable:
                     msg += f"• `{s}` | السعر: `${pr}` | التقييم الذكي: `{sc}%`\n"
                 bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
@@ -263,10 +262,10 @@ def handle_messages(message):
             bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
 
-    # تحليل سهم يدوي وشراء آلي مع التعلم والتتبع
+    # تحليل سهم يدوي وتطبيق استراتيجية التدوير والوقف الذكي
     symbol_to_check = text.replace("$", "").strip().upper()
     if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
-        bot.send_message(chat_id, f"🤖 فحص السهم `{symbol_to_check}` عبر محرك التعلم الذاتي...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🤖 فحص السهم `{symbol_to_check}` وفق شروط تحدي التدوير...", reply_markup=get_control_keyboard())
         try:
             price, barset = get_fallback_price(symbol_to_check)
             if not price or price <= 0:
@@ -277,7 +276,7 @@ def handle_messages(message):
             reasons_str = "\n".join([f"• {r}" for r in reasons])
 
             analysis_msg = (
-                f"🔬 **تقرير الذكاء الاصطناعي المتعلم:**\n"
+                f"🔬 **تقرير الذكاء الاصطناعي للتحدي:**\n"
                 f"📌 الرمز: `{symbol_to_check}`\n"
                 f"💵 **السعر:** `${price}`\n"
                 f"⚡ تقييم الذكاء الاصطناعي: `{score}%`\n\n"
@@ -286,7 +285,23 @@ def handle_messages(message):
 
             if score >= 75:
                 try:
-                    qty_to_buy = max(2, int(150 / price))
+                    account_info = alpaca.get_account()
+                    total_equity = float(account_info.equity)
+                    cash_available = float(account_info.cash)
+
+                    # استراتيجية التدوير والتنويع: لو الحساب فوق 200$ يقسم السيولة، لو تحته يدورها بالكامل
+                    if total_equity >= 200.0:
+                        allocation_amount = cash_available * 0.50
+                        strategy_mode = "تنويع الأرباح (الحساب تجاوز 200$)"
+                    else:
+                        allocation_amount = cash_available * 0.90
+                        strategy_mode = "تدوير كامل بالربح ورأس المال (تحت 200$)"
+
+                    qty_to_buy = max(1, int(allocation_amount / price))
+                    
+                    # وقف خسارة أولي صارم 5%
+                    initial_stop_loss = round(price * 0.95, 2)
+
                     alpaca.submit_order(
                         symbol=symbol_to_check,
                         qty=qty_to_buy,
@@ -298,17 +313,23 @@ def handle_messages(message):
                     conn = sqlite3.connect("jalwe_learning.db")
                     cursor = conn.cursor()
                     cursor.execute("""
-                        INSERT OR REPLACE INTO active_trades_tracker (symbol, entry_price, highest_price, qty, status)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (symbol_to_check, price, price, qty_to_buy, 'ACTIVE'))
+                        INSERT OR REPLACE INTO active_trades_tracker (symbol, entry_price, stop_loss_price, highest_price, qty, status)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (symbol_to_check, price, initial_stop_loss, price, qty_to_buy, 'ACTIVE'))
                     conn.commit()
                     conn.close()
 
-                    analysis_msg += f"🟢 **تم التنفيذ الآلي بنجاح!**\n- شراء `{qty_to_buy}` سهم من `{symbol_to_check}`.\n- **مفعل:** الوقف المتحرك وتعظيم الأرباح والتعلم المستمر."
+                    analysis_msg += (
+                        f"🟢 **تم التنفيذ الآلي بنجاح!**\n"
+                        f"- النمط: `{strategy_mode}`\n"
+                        f"- الكمية: `{qty_to_buy}` سهم\n"
+                        f"- 🛑 وقف الخسارة الأولي: `${initial_stop_loss}`\n"
+                        f"- *سيتم رفع وقف الخسارة لسعر الدخول أو أعلى فور تحقيق الأرباح.*"
+                    )
                 except Exception as ex:
                     analysis_msg += f"⚠️ تعذر تنفيذ أمر الشراء: {str(ex)[:40]}"
             else:
-                analysis_msg += "🔴 **لم يتم التنفيذ الآلي:** الثقة بناءً على سجل التعلم والمؤشرات أقل من الحد الآمن (75%)."
+                analysis_msg += "🔴 **لم يتم التنفيذ الآلي:** الثقة بناءً على الذاكرة والمؤشرات أقل من المطلوب."
 
             bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
 
@@ -318,15 +339,15 @@ def handle_messages(message):
         bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم صحيح.", reply_markup=get_control_keyboard())
 
 def manage_active_trades_and_trailing():
-    """متابعة الوقف المتحرك وجني الأرباح مع تسجيل النتيجة في حلقة التعلم المغلقة (Closed-Loop)"""
+    """إدارة الصفقات: رفع وقف الخسارة لمستوى الربح الأول (Break-Even)، تعصير السهم، والتعلم الذاتي"""
     try:
         conn = sqlite3.connect("jalwe_learning.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT symbol, entry_price, highest_price, qty, status FROM active_trades_tracker WHERE status='ACTIVE'")
+        cursor.execute("SELECT symbol, entry_price, stop_loss_price, highest_price, qty, status FROM active_trades_tracker WHERE status='ACTIVE'")
         trades = cursor.fetchall()
         conn.close()
 
-        for symbol, entry_price, highest_price, qty, status in trades:
+        for symbol, entry_price, stop_loss_price, highest_price, qty, status in trades:
             curr_price, _ = get_fallback_price(symbol)
             if not curr_price:
                 continue
@@ -334,34 +355,21 @@ def manage_active_trades_and_trailing():
             new_highest = max(highest_price, curr_price)
             profit_pct = ((curr_price - entry_price) / entry_price) * 100
 
-            # 1. جني أرباح جزئي (Scale-Out)
-            if profit_pct >= 5.0 and qty >= 2:
-                half_qty = max(1, qty // 2)
-                try:
-                    alpaca.submit_order(symbol=symbol, qty=half_qty, side='sell', type='market', time_in_force='gtc')
-                    remaining_qty = qty - half_qty
-                    
-                    conn = sqlite3.connect("jalwe_learning.db")
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE active_trades_tracker SET qty=?, highest_price=? WHERE symbol=?", (remaining_qty, new_highest, symbol))
-                    conn.commit()
-                    conn.close()
+            # 1. تحديث وقف الخسارة الذكي (إذا حقق السهم أرباحاً أولية بنسبة +4% أو أكثر، ارفع وقف الخسارة لمكان الدخول أو فوقه)
+            current_stop = stop_loss_price
+            if profit_pct >= 4.0 and current_stop < entry_price:
+                current_stop = entry_price # رفع وقف الخسارة لسعر الدخول (صفقة بدون مخاطرة Risk-Free)
+                if profit_pct >= 8.0:
+                    current_stop = round(entry_price * 1.03, 2) # قفل أرباح مضمونة لو صعد أكثر
 
-                    if TELEGRAM_CHAT_ID:
-                        bot.send_message(TELEGRAM_CHAT_ID, f"💰 **جني أرباح جزئي (Scale-Out)!**\n- الرمز: `{symbol}`\n- تم بيع نصف الكمية بربح `{profit_pct:.2f}%`.\n- الباقي مستمر مع الوقف المتحرك لتعظيم الأرباح 🚀", parse_mode="Markdown")
-                except Exception:
-                    pass
-
-            # 2. الوقف المتحرك (Trailing Stop) وإغلاق الصفقة وتغذية الذاكرة الذاتية
-            drop_from_peak = ((new_highest - curr_price) / new_highest) * 100
-            if drop_from_peak >= 3.0 and profit_pct > 0.5:
+            # 2. إذا نزل السهم ولمس وقف الخسارة المحدث أو حقق خسارة 5%، اخرج فوراً لحماية الرصيد وتدويره
+            if curr_price <= current_stop or profit_pct <= -5.0:
                 try:
                     alpaca.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='gtc')
                     
                     conn = sqlite3.connect("jalwe_learning.db")
                     cursor = conn.cursor()
                     cursor.execute("UPDATE active_trades_tracker SET status='CLOSED' WHERE symbol=?", (symbol,))
-                    # تسجيل النتيجة في سجل التعلم الذاتي ليتأثر التحليل المستقبلي إيجاباً أو سلباً
                     cursor.execute("""
                         INSERT INTO closed_trades_performance (symbol, entry_price, exit_price, profit_pct, result_status)
                         VALUES (?, ?, ?, ?, ?)
@@ -369,14 +377,35 @@ def manage_active_trades_and_trailing():
                     conn.commit()
                     conn.close()
 
+                    status_msg = "🎯 أرباح مضمونة ومحمية" if profit_pct > 0 else "🛑 وقف الخسارة"
                     if TELEGRAM_CHAT_ID:
-                        bot.send_message(TELEGRAM_CHAT_ID, f"🎯🧠 **إغلاق الصفقة بالوقف المتحرك وتعلم الذكاء الاصطناعي!**\n- الرمز: `{symbol}`\n- صافي الأرباح: `{profit_pct:.2f}%`\n- *تمت إضافة النتيجة إلى ذاكرة التعلم الذاتي لتحديث الدقة مستقبلاً.*", parse_mode="Markdown")
+                        bot.send_message(TELEGRAM_CHAT_ID, f"🔄🚨 **إغلاق صفقة التحدي ({status_msg})!**\n- الرمز: `{symbol}`\n- النتيجة: `{profit_pct:.2f}%`\n- *تمت إضافة الكاش والأرباح لرصيد التدوير لتحديث الحجم في الدورة القادمة 🚀*", parse_mode="Markdown")
+                except Exception:
+                    pass
+            
+            # 3. تعصير السهم لأقصى ربح (Trailing Stop من أعلى قمة وصلها)
+            elif ((new_highest - curr_price) / new_highest) * 100 >= 3.0 and profit_pct >= 6.0:
+                try:
+                    alpaca.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='gtc')
+                    
+                    conn = sqlite3.connect("jalwe_learning.db")
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE active_trades_tracker SET status='CLOSED' WHERE symbol=?", (symbol,))
+                    cursor.execute("""
+                        INSERT INTO closed_trades_performance (symbol, entry_price, exit_price, profit_pct, result_status)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (symbol, entry_price, curr_price, profit_pct, "WIN"))
+                    conn.commit()
+                    conn.close()
+
+                    if TELEGRAM_CHAT_ID:
+                        bot.send_message(TELEGRAM_CHAT_ID, f"🎯💰 **تعصير السهم وجني الأقصى بنجاح!**\n- الرمز: `{symbol}`\n- أرباح الصعود: `+{profit_pct:.2f}%`\n- *الأرباح تضاف بالكامل لتعزيز محفظة التحدي.*", parse_mode="Markdown")
                 except Exception:
                     pass
             else:
                 conn = sqlite3.connect("jalwe_learning.db")
                 cursor = conn.cursor()
-                cursor.execute("UPDATE active_trades_tracker SET highest_price=? WHERE symbol=?", (new_highest, symbol))
+                cursor.execute("UPDATE active_trades_tracker SET highest_price=?, stop_loss_price=? WHERE symbol=?", (new_highest, current_stop, symbol))
                 conn.commit()
                 conn.close()
 
@@ -384,7 +413,6 @@ def manage_active_trades_and_trailing():
         pass
 
 def send_weekly_performance_report():
-    """تقرير الأداء الأسبوعي الآلي يرسل كفاءة البوت وأرباحه"""
     try:
         conn = sqlite3.connect("jalwe_learning.db")
         cursor = conn.cursor()
@@ -398,11 +426,11 @@ def send_weekly_performance_report():
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
 
         report_msg = (
-            f"📊📅 **التقرير الأسبوعي الآلي لأداء JALWE AI:**\n\n"
-            f"• إجمالي الصفقات المغلقة: `{total_trades}`\n"
+            f"📊📅 **تقرير أداء تحدي التدوير الأسبوعي:**\n\n"
+            f"• إجمالي صفقات التحدي: `{total_trades}`\n"
             f"• الصفقات الرابحة: `{winning_trades}`\n"
-            f"• نسبة النجاح (Win Rate): `{win_rate:.1f}%`\n"
-            f"• متوسط العائد لكل صفقة: `{avg_profit:.2f}%`\n\n"
+            f"• نسبة النجاح: `{win_rate:.1f}%`\n"
+            f"• متوسط العائد: `{avg_profit:.2f}%`\n\n"
             f"🧠 *الذكاء الاصطناعي قام بتحديث أوزان الذاكرة بناءً على هذه النتائج.*"
         )
         if TELEGRAM_CHAT_ID:
@@ -428,7 +456,18 @@ def main_trading_cycle():
                 
                 if score >= 82:
                     try:
-                        qty_to_buy = max(2, int(150 / price))
+                        account_info = alpaca.get_account()
+                        total_equity = float(account_info.equity)
+                        cash_available = float(account_info.cash)
+
+                        if total_equity >= 200.0:
+                            allocation_amount = cash_available * 0.50
+                        else:
+                            allocation_amount = cash_available * 0.90
+
+                        qty_to_buy = max(1, int(allocation_amount / price))
+                        initial_stop_loss = round(price * 0.95, 2)
+
                         alpaca.submit_order(
                             symbol=sym,
                             qty=qty_to_buy,
@@ -440,19 +479,19 @@ def main_trading_cycle():
                         conn = sqlite3.connect("jalwe_learning.db")
                         cursor = conn.cursor()
                         cursor.execute("""
-                            INSERT OR REPLACE INTO active_trades_tracker (symbol, entry_price, highest_price, qty, status)
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (sym, price, price, qty_to_buy, 'ACTIVE'))
+                            INSERT OR REPLACE INTO active_trades_tracker (symbol, entry_price, stop_loss_price, highest_price, qty, status)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (sym, price, initial_stop_loss, price, qty_to_buy, 'ACTIVE'))
                         conn.commit()
                         conn.close()
                         
                         alert_msg = (
-                            f"🚀🧠 **تنفيذ آلي مدعوم بالتعلم الذاتي في الخلفية!**\n"
+                            f"🚀 تحدي التدوير — **تنفيذ آلي في الخلفية!**\n"
                             f"📌 الرمز: `{sym}`\n"
                             f"💵 سعر الشراء: `${price}`\n"
-                            f"📊 تقييم الذاكرة والزخم: `{score}%`\n"
-                            f"📦 الكمية: `{qty_to_buy}` سهم\n\n"
-                            f"⚡ *تم تفعيل الوقف المتحرك والتعلم المغلق بنجاح.*"
+                            f"📊 تقييم الذكاء الاصطناعي: `{score}%`\n"
+                            f"🛑 وقف الخسارة الأولي: `${initial_stop_loss}`\n"
+                            f"📦 الكمية: `{qty_to_buy}` سهم"
                         )
                         if TELEGRAM_CHAT_ID:
                             bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
@@ -460,13 +499,13 @@ def main_trading_cycle():
                     except Exception:
                         pass
     except Exception as e:
-        last_error = f"خطأ دورة التعلم الذاتي: {str(e)[:40]}"
+        last_error = f"خطأ دورة التحدي: {str(e)[:40]}"
 
 schedule.every(15).minutes.do(main_trading_cycle)
-schedule.every().friday.at("21:00").do(send_weekly_performance_report) # تقرير أسبوعي كل جمعة
+schedule.every().friday.at("21:00").do(send_weekly_performance_report)
 
 if __name__ == "__main__":
-    print("INFO - JALWE Closed-Loop ML & Autonomous Trading Engine is running...")
+    print("INFO - JALWE Compounding & Trailing Stop Engine is running...")
     try:
         bot.remove_webhook()
         time.sleep(2)
