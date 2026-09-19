@@ -28,16 +28,16 @@ options_engine = OptionsFlowEngine(alpaca)
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "System is fully stable with no active errors 🚀"
+last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        KeyboardButton("🟢 Start AI Autonomous Bot"),
-        KeyboardButton("🛑 Stop Bot"),
-        KeyboardButton("🔍 Check AI Learning Model"),
-        KeyboardButton("📊 Stock Prices & Scan"),
-        KeyboardButton("⚠️ System & Error Diagnostics")
+        KeyboardButton("🟢 تشغيل البوت المتعلم"),
+        KeyboardButton("🛑 إيقاف البوت"),
+        KeyboardButton("🔍 فحص نموذج التعلم الآلي"),
+        KeyboardButton("📊 أسعار الأسهم"),
+        KeyboardButton("⚠️ فحص الأخطاء والنظام")
     )
     return markup
 
@@ -47,35 +47,35 @@ def handle_commands(message):
     text = message.text
     chat_id = message.chat.id
 
-    if "Start AI Autonomous Bot" in text:
+    if "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **AI Autonomous Pre-Breakout Engine activated successfully.**", reply_markup=get_control_keyboard())
-    elif "Stop Bot" in text:
+        bot.send_message(chat_id, "🟢 **تم تفعيل منظومة الذكاء الاصطناعي والاستباق بالكامل.**", reply_markup=get_control_keyboard())
+    elif "إيقاف البوت" in text:
         bot_running = False
-        bot.send_message(chat_id, "🛑 **System paused temporarily.**", reply_markup=get_control_keyboard())
-    elif "Check AI Learning Model" in text:
+        bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
+    elif "فحص نموذج التعلم الآلي" in text:
         stats = learning_engine.get_learning_stats()
-        bot.send_message(chat_id, f"🧠 **RandomForest & Self-Learning Model:**\n- Status: `Connected & Active`\n- {stats}", reply_markup=get_control_keyboard())
-    elif "System & Error Diagnostics" in text:
+        bot.send_message(chat_id, f"🧠 **نموذج RandomForest والتعلم الذاتي:**\n- الحالة: `متصل ونشط ويتعلم ذاتياً`\n- {stats}", reply_markup=get_control_keyboard())
+    elif "⚠️ فحص الأخطاء والنظام" in text:
         report = (
-            f"🛠️ **JALWE AI Ultimate System Diagnostics:**\n\n"
-            f"• **Status:** `{last_error}`\n"
-            f"• **Telegram Connection:** `Stable (Long Polling Active w/o 409)`\n"
-            f"• **Alpaca & AI Engine:** `Connected & Ready`"
+            f"🛠️ **سجل الأخطاء والتشخيص (JALWE AI Ultimate):**\n\n"
+            f"• **الحالة:** `{last_error}`\n"
+            f"• **اتصال تيليجرام:** `مستقر (Long Polling نشط بدون 409)`\n"
+            f"• **منصة Alpaca ومحرك الذكاء الاصطناعي:** `متصل وجاهز تماماً`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
-    elif "Stock Prices & Scan" in text:
-        bot.send_message(chat_id, "⏳ Scanning entire market using AI model...", reply_markup=get_control_keyboard())
+    elif "أسعار الأسهم" in text:
+        bot.send_message(chat_id, "⏳ جاري فحص كامل السوق واستخراج رموز الأسهم عبر نموذج الذكاء الاصطناعي...", reply_markup=get_control_keyboard())
         symbols = pre_engine.scan_entire_market()[:5]
-        msg = "📊 **AI Pre-Breakout Scan Samples:**\n\n"
+        msg = "📊 **رموز الأسهم وعينات فحص الذكاء الاصطناعي (Pre-Breakout):**\n\n"
         for sym in symbols:
             metrics = pre_engine.calculate_metrics(sym)
             if metrics:
                 eval_res = pre_engine.evaluate_pre_breakout(metrics)
-                msg += f"• `{sym}` | Price: `${metrics['price']}` | Confidence: `{eval_res['score']}%`\n"
+                msg += f"• Stock Symbol: `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "Please select an option below:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "الرجاء الاختيار من الأزرار أدناه:", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running
@@ -105,21 +105,21 @@ def main_trading_cycle():
                 
                 alert_msg = (
                     f"🚨 JALWE AI — MOMENTUM BREAKOUT\n"
-                    f"📌 Symbol: `{sym}`\n"
-                    f"📊 Setup: `{evaluation['status']}`\n"
-                    f"💵 Price: `${metrics['price']}`\n"
-                    f"🟡 Entry Zone:\n`{levels['entry_zone']}`\n"
-                    f"🛑 Stop Loss:\n`{levels['stop_loss']}`\n"
-                    f"🎯 Target 1:\n`{levels['target_1']}`\n"
-                    f"🎯 Target 2:\n`{levels['target_2']}`\n"
-                    f"🎯 Target 3:\n`{levels['target_3']}`\n"
+                    f"📌 Stock Symbol: `{sym}`\n"
+                    f"📊 الحالة: `{evaluation['status']}`\n"
+                    f"💵 السعر الحالي: `${metrics['price']}`\n"
+                    f"🟡 منطقة الدخول:\n`{levels['entry_zone']}`\n"
+                    f"🛑 وقف الخسارة:\n`{levels['stop_loss']}`\n"
+                    f"🎯 الهدف الأول:\n`{levels['target_1']}`\n"
+                    f"🎯 الهدف الثاني:\n`{levels['target_2']}`\n"
+                    f"🎯 الهدف الثالث:\n`{levels['target_3']}`\n"
                     f"📈 RVOL: `{metrics['rvol']}x`\n"
-                    f"⚡ Volume Speed: `{metrics['volume_speed']}`\n"
-                    f"💧 Liquidity Flow: `{metrics['liquidity_flow']}/100`\n"
-                    f"🤖 AI Confidence: `{evaluation['score']}%`\n"
-                    f"📜 Suggested Contract:\n"
-                    f"Type: `{opt['contract_type']}` | Strike: `{opt['strike']}` | Delta: `{opt['delta']}`\n"
-                    f"🟢 PAPER TRADE ONLY"
+                    f"⚡ سرعة السيولة: `{metrics['volume_speed']}`\n"
+                    f"💧 تدفق السيولة: `{metrics['liquidity_flow']}/100`\n"
+                    f"🤖 ثقة الذكاء الاصطناعي: `{evaluation['score']}%`\n"
+                    f"📜 عقد الخيارات المقترح:\n"
+                    f"النوع: `{opt['contract_type']}` | السترايك: `{opt['strike']}` | الدلتا: `{opt['delta']}`\n"
+                    f"🟢 تداول ورقي حصراً (PAPER TRADE ONLY)"
                 )
                 if TELEGRAM_CHAT_ID:
                     bot.send_message(TELEGRAM_CHAT_ID, alert_msg, parse_mode="Markdown")
@@ -154,5 +154,5 @@ if __name__ == "__main__":
             bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
         except Exception as e:
             print(f"Polling conflict/error caught: {e}")
-            last_error = f"Handled connection conflict: {str(e)[:40]}"
+            last_error = f"تم تجاوز التعارض بنجاح: {str(e)[:40]}"
             time.sleep(10)
