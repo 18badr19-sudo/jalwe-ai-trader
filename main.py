@@ -77,73 +77,10 @@ def get_saved_snapshots_count():
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message):
     global bot_running, last_error
-    text = message.text.strip()
+    text = message.text.strip() if message.text else ""
     chat_id = message.chat.id
 
-    # قائمة الأزرار المعروفة في لوحة التحكم
-    known_buttons = [
-        "🟢 تشغيل الرادار المستقل", "تشغيل البوت المتعلم", 
-        "🛑 إيقاف البوت", 
-        "🔍 فحص نموذج التعلم الذاتي", "فحص نموذج التعلم الآلي", 
-        "📊 فحص السوق حالياً", "أسعار الأسهم",
-        "⚠️ تقرير النظام والأخطاء", "فحص الأخطاء والنظام"
-    ]
-
-    # إذا لم تكن الرسالة زراً من الأزرار، إذن هي رمز سهم يتم فحصه مباشرة!
-    if text not in known_buttons:
-        symbol_to_check = text.replace("$", "").strip().upper()
-        bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري فحصه ودراسة جدواه واتخاذ القرار بشأنه...", reply_markup=get_control_keyboard())
-        try:
-            metrics = pre_engine.calculate_metrics(symbol_to_check)
-            if not metrics:
-                bot.send_message(chat_id, f"⚠️ عذراً، لا توجد بيانات كافية للسهم `{symbol_to_check}` لتكوين قرار بشأنه.", reply_markup=get_control_keyboard())
-                return
-            
-            price = metrics.get('price', 0)
-            evaluation = pre_engine.evaluate_pre_breakout(metrics)
-            score = evaluation.get('score', 0)
-            
-            target_1 = round(price * 1.30, 2)
-            target_2 = round(price * 1.65, 2)
-            stop_loss = round(price * 0.88, 2)
-            
-            if score >= 45:
-                decision = "🟢 **قرر البوت: السهم فيه (فايدة) وعزم حقيقي ويستحق المتابعة!**"
-            else:
-                decision = "🔴 **قرر البوت: السهم ضعيف حالياً ولا توجد فيه جدوى قوية.**"
-
-            analysis_msg = (
-                f"🔬 **تقرير القرار المستقل للتحليل (JALWE AI):**\n"
-                f"📌 الرمز: `{symbol_to_check}`\n"
-                f"💵 السعر: `${price}`\n"
-                f"📈 عزم السيولة (RVOL): `{metrics.get('rvol', 1)}x`\n"
-                f"⚡ نسبة الجدوى والتقييم: `{score}%`\n\n"
-                f"{decision}\n\n"
-                f"📊 **خطة البوت الموضوعة للسهم:**\n"
-                f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
-                f"• 🎯 الهدف الأول: `${target_1}`\n"
-                f"• 🎯 الهدف الثاني: `${target_2}`\n\n"
-                f"🛡️ *تم حفظ قراره وحالته في الذاكرة للتعلم الذاتي المستمر.*"
-            )
-            bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
-
-            try:
-                conn = sqlite3.connect("jalwe_learning.db")
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO potential_stocks_snapshots (symbol, entry_price, target_price, score, status) VALUES (?, ?, ?, ?, ?)",
-                    (symbol_to_check, price, target_1, score, "INDEPENDENT_DECISION")
-                )
-                conn.commit()
-                conn.close()
-            except Exception:
-                pass
-
-        except Exception as e:
-            bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء معالجة السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
-        return
-
-    # الأوامر الرئيسية للتحكم عبر الأزرار
+    # الأوامر الرئيسية للتحكم عبر أزرار القائمة
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
         bot.send_message(chat_id, "🟢 **تم تفعيل المحلل المستقل والرادار الاستباقي بنجاح.**", reply_markup=get_control_keyboard())
@@ -194,6 +131,61 @@ def handle_messages(message):
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ تعذر إتمام المسح الفوري: {str(e)}", reply_markup=get_control_keyboard())
         return
+
+    # إذا لم يكن النص زراً من الأزرار أعلاه، فسيتم اعتباره مباشرة رمز سهم وفحصه فوراً!
+    symbol_to_check = text.replace("$", "").strip().upper()
+    if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
+        bot.send_message(chat_id, f"🤖 استلمت السهم `{symbol_to_check}`، جاري فحصه ودراسة جدواه واتخاذ القرار بشأنه...", reply_markup=get_control_keyboard())
+        try:
+            metrics = pre_engine.calculate_metrics(symbol_to_check)
+            if not metrics:
+                bot.send_message(chat_id, f"⚠️ عذراً، لا توجد بيانات كافية للسهم `{symbol_to_check}` لتكوين قرار بشأنه.", reply_markup=get_control_keyboard())
+                return
+            
+            price = metrics.get('price', 0)
+            evaluation = pre_engine.evaluate_pre_breakout(metrics)
+            score = evaluation.get('score', 0)
+            
+            target_1 = round(price * 1.30, 2)
+            target_2 = round(price * 1.65, 2)
+            stop_loss = round(price * 0.88, 2)
+            
+            if score >= 45:
+                decision = "🟢 **قرر البوت: السهم فيه (فايدة) وعزم حقيقي ويستحق المتابعة!**"
+            else:
+                decision = "🔴 **قرر البوت: السهم ضعيف حالياً ولا توجد فيه جدوى قوية.**"
+
+            analysis_msg = (
+                f"🔬 **تقرير القرار المستقل للتحليل (JALWE AI):**\n"
+                f"📌 الرمز: `{symbol_to_check}`\n"
+                f"💵 السعر: `${price}`\n"
+                f"📈 عزم السيولة (RVOL): `{metrics.get('rvol', 1)}x`\n"
+                f"⚡ نسبة الجدوى والتقييم: `{score}%`\n\n"
+                f"{decision}\n\n"
+                f"📊 **خطة البوت الموضوعة للسهم:**\n"
+                f"• 🛑 وقف الخسارة: `${stop_loss}`\n"
+                f"• 🎯 الهدف الأول: `${target_1}`\n"
+                f"• 🎯 الهدف الثاني: `${target_2}`\n\n"
+                f"🛡️ *تم حفظ قراره وحالته في الذاكرة للتعلم الذاتي المستمر.*"
+            )
+            bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+
+            try:
+                conn = sqlite3.connect("jalwe_learning.db")
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO potential_stocks_snapshots (symbol, entry_price, target_price, score, status) VALUES (?, ?, ?, ?, ?)",
+                    (symbol_to_check, price, target_1, score, "INDEPENDENT_DECISION")
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ حدث خطأ أثناء معالجة السهم `{symbol_to_check}`: {str(e)[:50]}", reply_markup=get_control_keyboard())
+    else:
+        bot.send_message(chat_id, "الرجاء اختيار أمر من القائمة أو إرسال رمز سهم صحيح (مثل: `AAPL`).", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running, last_error
