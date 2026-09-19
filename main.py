@@ -21,23 +21,23 @@ APCA_API_BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.mar
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 alpaca = tradeapi.REST(APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, api_version='v2')
 
-pre_engine = PreBreakoutEngine(alpaca)
+learning_engine = ChartAndLearningEngine()
+pre_engine = PreBreakoutEngine(alpaca, learning_engine)
 risk_engine = TargetRiskEngine(alpaca)
 options_engine = OptionsFlowEngine(alpaca)
-learning_engine = ChartAndLearningEngine()
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "النظام مستقر تماماً ولا توجد أي أخطاء نشطة 🚀"
+last_error = "System is fully stable with no active errors 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        KeyboardButton("🟢 تشغيل البوت المتعلم"),
-        KeyboardButton("🛑 إيقاف البوت"),
-        KeyboardButton("🔍 فحص نموذج التعلم الآلي"),
-        KeyboardButton("📊 أسعار الأسهم"),
-        KeyboardButton("⚠️ فحص الأخطاء والنظام")
+        KeyboardButton("🟢 Start AI Autonomous Bot"),
+        KeyboardButton("🛑 Stop Bot"),
+        KeyboardButton("🔍 Check AI Learning Model"),
+        KeyboardButton("📊 Stock Prices & Scan"),
+        KeyboardButton("⚠️ System & Error Diagnostics")
     )
     return markup
 
@@ -47,35 +47,35 @@ def handle_commands(message):
     text = message.text
     chat_id = message.chat.id
 
-    if "تشغيل البوت المتعلم" in text:
+    if "Start AI Autonomous Bot" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل منظومة الذكاء الاصطناعي والاستباق بالكامل.**", reply_markup=get_control_keyboard())
-    elif "إيقاف البوت" in text:
+        bot.send_message(chat_id, "🟢 **AI Autonomous Pre-Breakout Engine activated successfully.**", reply_markup=get_control_keyboard())
+    elif "Stop Bot" in text:
         bot_running = False
-        bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
-    elif "فحص نموذج التعلم الآلي" in text:
+        bot.send_message(chat_id, "🛑 **System paused temporarily.**", reply_markup=get_control_keyboard())
+    elif "Check AI Learning Model" in text:
         stats = learning_engine.get_learning_stats()
-        bot.send_message(chat_id, f"🧠 **نموذج RandomForest والتعلم الذاتي:**\n- الحالة: `متصل ونشط`\n- {stats}", reply_markup=get_control_keyboard())
-    elif "⚠️ فحص الأخطاء والنظام" in text:
+        bot.send_message(chat_id, f"🧠 **RandomForest & Self-Learning Model:**\n- Status: `Connected & Active`\n- {stats}", reply_markup=get_control_keyboard())
+    elif "System & Error Diagnostics" in text:
         report = (
-            f"🛠️ **سجل الأخطاء والتشخيص (JALWE AI Ultimate):**\n\n"
-            f"• **الحالة:** `{last_error}`\n"
-            f"• **اتصال تيليجرام:** `مستقر (Long Polling نشط بدون 409)`\n"
-            f"• **منصة Alpaca ومحرك الذكاء الاصطناعي:** `متصل وجاهز تماماً`"
+            f"🛠️ **JALWE AI Ultimate System Diagnostics:**\n\n"
+            f"• **Status:** `{last_error}`\n"
+            f"• **Telegram Connection:** `Stable (Long Polling Active w/o 409)`\n"
+            f"• **Alpaca & AI Engine:** `Connected & Ready`"
         )
         bot.send_message(chat_id, report, parse_mode="Markdown", reply_markup=get_control_keyboard())
-    elif "أسعار الأسهم" in text:
-        bot.send_message(chat_id, "⏳ جاري فحص كامل السوق عبر نموذج الذكاء الاصطناعي...", reply_markup=get_control_keyboard())
+    elif "Stock Prices & Scan" in text:
+        bot.send_message(chat_id, "⏳ Scanning entire market using AI model...", reply_markup=get_control_keyboard())
         symbols = pre_engine.scan_entire_market()[:5]
-        msg = "📊 **عينات فحص الذكاء الاصطناعي (Pre-Breakout):**\n\n"
+        msg = "📊 **AI Pre-Breakout Scan Samples:**\n\n"
         for sym in symbols:
             metrics = pre_engine.calculate_metrics(sym)
             if metrics:
                 eval_res = pre_engine.evaluate_pre_breakout(metrics)
-                msg += f"• `{sym}` | السعر: `${metrics['price']}` | الثقة: `{eval_res['score']}%`\n"
+                msg += f"• `{sym}` | Price: `${metrics['price']}` | Confidence: `{eval_res['score']}%`\n"
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
     else:
-        bot.send_message(chat_id, "اختر من الأزرار أدناه:", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "Please select an option below:", reply_markup=get_control_keyboard())
 
 def main_trading_cycle():
     global bot_running
@@ -83,6 +83,7 @@ def main_trading_cycle():
         return
     try:
         trade_manager.monitor_open_positions()
+        pre_engine.update_model_with_real_data()
         
         symbols = pre_engine.scan_entire_market()
         import random
@@ -106,9 +107,9 @@ def main_trading_cycle():
                     f"🚨 JALWE AI — MOMENTUM BREAKOUT\n"
                     f"📌 Symbol: `{sym}`\n"
                     f"📊 Setup: `{evaluation['status']}`\n"
-                    f"💵 السعر الحالي: `${metrics['price']}`\n"
-                    f"🟡 منطقة الدخول:\n`{levels['entry_zone']}`\n"
-                    f"🛑 Stop:\n`{levels['stop_loss']}`\n"
+                    f"💵 Price: `${metrics['price']}`\n"
+                    f"🟡 Entry Zone:\n`{levels['entry_zone']}`\n"
+                    f"🛑 Stop Loss:\n`{levels['stop_loss']}`\n"
                     f"🎯 Target 1:\n`{levels['target_1']}`\n"
                     f"🎯 Target 2:\n`{levels['target_2']}`\n"
                     f"🎯 Target 3:\n`{levels['target_3']}`\n"
@@ -146,7 +147,6 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
 
-    # حلقة آمنة بالكامل للتعامل التلقائي مع أخطاء التعارض (409) وإعادة الاتصال
     while True:
         try:
             bot.remove_webhook()
@@ -154,5 +154,5 @@ if __name__ == "__main__":
             bot.infinity_polling(timeout=60, long_polling_timeout=30, skip_pending=True)
         except Exception as e:
             print(f"Polling conflict/error caught: {e}")
-            last_error = f"تم تجاوز تارض مؤقت وإعادة الاتصال: {str(e)[:40]}"
+            last_error = f"Handled connection conflict: {str(e)[:40]}"
             time.sleep(10)
