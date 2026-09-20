@@ -146,24 +146,16 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS potential_stocks_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-
                 symbol TEXT NOT NULL,
-
                 entry_price REAL,
                 target_price REAL,
-
                 score REAL,
-
                 status TEXT,
-
                 timeframe TEXT,
-
                 reasons TEXT,
-
                 rvol REAL,
                 volume REAL,
                 vwap REAL,
-
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -171,27 +163,17 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS active_trades_tracker (
                 symbol TEXT PRIMARY KEY,
-
                 order_id TEXT,
-
                 entry_price REAL,
-
                 stop_loss_price REAL,
-
                 target1_price REAL,
                 target2_price REAL,
                 target3_price REAL,
-
                 highest_price REAL,
-
                 qty INTEGER,
-
                 status TEXT,
-
                 strategy TEXT,
-
                 signal_score REAL,
-
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -199,23 +181,15 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS closed_trades_performance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-
                 symbol TEXT,
-
                 entry_price REAL,
                 exit_price REAL,
-
                 profit_pct REAL,
                 profit_usd REAL,
-
                 result_status TEXT,
-
                 exit_reason TEXT,
-
                 signal_score REAL,
-
                 strategy TEXT,
-
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -223,14 +197,18 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-
                 event_type TEXT,
-
                 symbol TEXT,
-
                 message TEXT,
-
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # جدول جديد لدعم التعلم الذاتي وتغيير الأوزان بناءً على الأداء
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS adaptive_weights (
+                factor_name TEXT PRIMARY KEY,
+                weight_modifier REAL
             )
         """)
 
@@ -319,28 +297,21 @@ def get_control_keyboard():
 
 
 # ============================================================
-# DATABASE HELPERS
+# DATABASE HELPERS & ADAPTIVE WEIGHTS
 # ============================================================
 
 def log_event(event_type, message, symbol=None):
 
     try:
-
         with db_connection() as conn:
-
             conn.execute(
                 """
                 INSERT INTO system_events
                 (event_type, symbol, message)
                 VALUES (?, ?, ?)
                 """,
-                (
-                    event_type,
-                    symbol,
-                    message
-                )
+                (event_type, symbol, message)
             )
-
     except Exception:
         pass
 
@@ -348,17 +319,12 @@ def log_event(event_type, message, symbol=None):
 def get_saved_snapshots_count():
 
     try:
-
         with db_connection() as conn:
-
             cursor = conn.cursor()
-
             cursor.execute(
                 "SELECT COUNT(*) FROM potential_stocks_snapshots"
             )
-
             return cursor.fetchone()[0]
-
     except Exception:
         return 0
 
@@ -366,11 +332,8 @@ def get_saved_snapshots_count():
 def get_active_symbols():
 
     try:
-
         with db_connection() as conn:
-
             cursor = conn.cursor()
-
             cursor.execute(
                 """
                 SELECT symbol
@@ -378,32 +341,78 @@ def get_active_symbols():
                 WHERE status='ACTIVE'
                 """
             )
-
             return {
                 row[0]
                 for row in cursor.fetchall()
             }
-
     except Exception:
         return set()
 
 
+def get_adaptive_weight(factor_name, default_val=0.0):
+    """استرجاع التعديلات الذكية للأوزان بناءً على الأداء السابق"""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT weight_modifier FROM adaptive_weights WHERE factor_name = ?", (factor_name,))
+            row = cursor.fetchone()
+            return row[0] if row else default_val
+    except Exception:
+        return default_val
+
+
+def update_adaptive_weights_based_on_performance():
+    """التعلم الذاتي الفعلي: رفع الشروط أو خفضها بناءً على نسبة النجاح والخسارة"""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT result_status FROM closed_trades_performance ORDER BY id DESC LIMIT 50")
+            rows = cursor.fetchall()
+            if len(rows) < 5:
+                return
+            
+            wins = sum(1 for r in rows if r[0] == "WIN")
+            win_rate = wins / len(rows)
+            
+            # إذا زادت الخسائر، يرفع البوت الحد الأدنى للنقاط تلقائياً بحذر
+            modifier = 4.0 if win_rate < 0.4 else (-2.0 if win_rate > 0.6 else 0.0)
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO adaptive_weights (factor_name, weight_modifier)
+                VALUES ('score_threshold_boost', ?)
+            """, (modifier,))
+    except Exception as e:
+        log_event("ADAPTIVE_WEIGHT_ERROR", str(e)[:300])
+
+
 # ============================================================
-# MARKET DATA
+# MARKET DATA & MACRO TREND (MARKET-ADAPTIVE RISK)
 # ============================================================
+
+def get_market_trend_status():
+    """التحقق من حالة السوق العام (مثل SPY) لتحديد ما إذا كان صاعداً أم هابطاً"""
+    try:
+        bars = alpaca.get_bars("SPY", tradeapi.TimeFrame(1, tradeapi.TimeFrameUnit.Day), limit=10).df
+        if bars is not None and len(bars) >= 10:
+            ma10 = bars["close"].rolling(10).mean().iloc[-1]
+            current_spy = bars["close"].iloc[-1]
+            if current_spy < ma10:
+                return "BEARISH"
+    except Exception:
+        pass
+    return "BULLISH"
+
 
 def get_market_data(symbol):
 
     symbol = symbol.upper().strip()
 
     price = None
-
     bars_5m = None
     bars_15m = None
     bars_1h = None
 
     try:
-
         bars_5m = alpaca.get_bars(
             symbol,
             tradeapi.TimeFrame(
@@ -448,7 +457,6 @@ def get_market_data(symbol):
             )
 
     except Exception as e:
-
         log_event(
             "MARKET_DATA_ERROR",
             str(e)[:500],
@@ -456,15 +464,10 @@ def get_market_data(symbol):
         )
 
     if price is None:
-
         try:
-
             trade = alpaca.get_latest_trade(symbol)
-
             if trade and hasattr(trade, "price"):
-
                 price = float(trade.price)
-
         except Exception:
             pass
 
@@ -486,7 +489,6 @@ def calculate_rvol(bars):
         return None
 
     try:
-
         average_volume = (
             bars["volume"]
             .iloc[-21:-1]
@@ -501,7 +503,6 @@ def calculate_rvol(bars):
         return float(
             current_volume / average_volume
         )
-
     except Exception:
         return None
 
@@ -512,7 +513,6 @@ def calculate_vwap(bars):
         return None
 
     try:
-
         typical_price = (
             bars["high"]
             + bars["low"]
@@ -520,7 +520,6 @@ def calculate_vwap(bars):
         ) / 3
 
         volume = bars["volume"]
-
         cumulative_volume = volume.cumsum()
 
         if cumulative_volume.iloc[-1] <= 0:
@@ -531,7 +530,6 @@ def calculate_vwap(bars):
         ).cumsum() / cumulative_volume
 
         return float(vwap.iloc[-1])
-
     except Exception:
         return None
 
@@ -542,7 +540,6 @@ def calculate_atr(bars, period=14):
         return None
 
     try:
-
         previous_close = bars["close"].shift(1)
 
         tr = pd.concat(
@@ -560,13 +557,12 @@ def calculate_atr(bars, period=14):
             return None
 
         return float(atr)
-
     except Exception:
         return None
 
 
 # ============================================================
-# NEWS & OPTIONS FLOW INTEGRATION (مفعل بالكامل)
+# NEWS & OPTIONS FLOW INTEGRATION
 # ============================================================
 
 def get_news_sentiment(symbol):
@@ -575,7 +571,6 @@ def get_news_sentiment(symbol):
     reasons = []
 
     try:
-
         news = alpaca.get_news(
             symbol.upper(),
             limit=10
@@ -584,6 +579,7 @@ def get_news_sentiment(symbol):
         if not news:
             return 0, []
 
+        strong_positive = ["fda approval", "buyout", "massive contract", "record profit", "patent granted"]
         positive_words = [
             "surge", "jump", "beat", "profit", "contract", 
             "buy", "growth", "upgrade", "approval", "partnership", "guidance"
@@ -598,11 +594,14 @@ def get_news_sentiment(symbol):
         negative = 0
 
         for item in news:
-
             headline = (
                 getattr(item, "headline", "")
                 or ""
             ).lower()
+
+            if any(sp in headline for sp in strong_positive):
+                score += 8
+                reasons.append("🚀 خبر جوهري إيجابي للغاية!")
 
             positive += sum(
                 word in headline
@@ -617,11 +616,11 @@ def get_news_sentiment(symbol):
         difference = positive - negative
 
         if difference > 0:
-            score = min(15, difference * 3)
+            score += min(15, difference * 3)
             reasons.append(f"📰 محفزات إيجابية: {positive}")
         elif difference < 0:
-            score = max(-20, difference * 3)
-            reasons.append(f"⚠️ محفزات سلبية: {negative}")
+            score -= max(20, abs(difference) * 3)
+            reasons.append(f"⚠️ محفزات سلبية قوية: {negative}")
 
     except Exception as e:
         log_event("NEWS_ERROR", str(e)[:500], symbol)
@@ -630,7 +629,6 @@ def get_news_sentiment(symbol):
 
 
 def evaluate_options_flow(symbol):
-    """تفعيل محرك تدفق الخيارات OptionsFlowEngine لإضافة نقاط قوة للسهم"""
     try:
         if options_engine and hasattr(options_engine, "get_flow_score"):
             flow_score = options_engine.get_flow_score(symbol)
@@ -642,7 +640,7 @@ def evaluate_options_flow(symbol):
 
 
 # ============================================================
-# TECHNICAL / OPPORTUNITY ANALYSIS
+# TECHNICAL / OPPORTUNITY ANALYSIS (WITH MULTI-TIMEFRAME)
 # ============================================================
 
 def evaluate_momentum_and_strategies(
@@ -660,15 +658,27 @@ def evaluate_momentum_and_strategies(
     vwap = calculate_vwap(bars_5m)
     atr = calculate_atr(bars_5m)
 
-    # 1. Trend
+    trend_confirmed = True
+
+    # 1. Trend & Multi-Timeframe Confirmation
     if bars_1h is not None and len(bars_1h) >= 20:
-        ma20 = bars_1h["close"].rolling(20).mean().iloc[-1]
-        if price > ma20:
+        ma20_1h = bars_1h["close"].rolling(20).mean().iloc[-1]
+        if price > ma20_1h:
             score += 10
-            reasons.append("📈 السعر فوق متوسط 20 شمعة على الساعة")
+            reasons.append("📈 اتجاه صاعد مؤكد على فريم الساعة")
+        else:
+            score -= 10
+            trend_confirmed = False
+            reasons.append("📉 مخالفة الاتجاه على فريم الساعة")
+
+    if bars_15m is not None and len(bars_15m) >= 10:
+        ma10_15m = bars_15m["close"].rolling(10).mean().iloc[-1]
+        if price > ma10_15m:
+            score += 8
+            reasons.append("🟢 دعم إيجابي على فريم 15 دقيقة")
         else:
             score -= 8
-            reasons.append("📉 السعر تحت متوسط 20 شمعة على الساعة")
+            trend_confirmed = False
 
     # 2. RVOL
     if rvol is not None:
@@ -716,7 +726,7 @@ def evaluate_momentum_and_strategies(
     score += news_score
     reasons.extend(news_reasons)
 
-    # 7. Options Flow Engine Integration (تم التفعيل الفعلي)
+    # 7. Options Flow Engine Integration
     opt_score, opt_reasons = evaluate_options_flow(symbol)
     score += opt_score
     reasons.extend(opt_reasons)
@@ -728,12 +738,13 @@ def evaluate_momentum_and_strategies(
         "rvol": rvol,
         "vwap": vwap,
         "atr": atr,
+        "trend_confirmed": trend_confirmed,
         "reasons": reasons
     }
 
 
 # ============================================================
-# POSITION SIZING & ADVANCED RISK ENGINE (مفعل بالكامل)
+# POSITION SIZING & MARKET-ADAPTIVE RISK
 # ============================================================
 
 def calculate_position_size(price, stop_price):
@@ -746,7 +757,12 @@ def calculate_position_size(price, stop_price):
         if equity <= 0 or cash <= 0:
             return 0
 
-        max_risk_usd = equity * (RISK_PER_TRADE_PCT / 100)
+        risk_pct = RISK_PER_TRADE_PCT
+        # تخفيض المخاطرة تلقائياً إذا كان السوق العام هابطاً (Market-Adaptive Risk)
+        if get_market_trend_status() == "BEARISH":
+            risk_pct = RISK_PER_TRADE_PCT / 2.0
+
+        max_risk_usd = equity * (risk_pct / 100)
         risk_per_share = price - stop_price
 
         if risk_per_share <= 0:
@@ -759,7 +775,6 @@ def calculate_position_size(price, stop_price):
 
         qty = min(qty_by_risk, qty_by_allocation, qty_by_cash)
 
-        # تفعيل محرك المخاطر المتقدم TargetRiskEngine لفلترة وحساب الحجم الآمن
         if risk_engine and hasattr(risk_engine, "validate_position_size"):
             qty = risk_engine.validate_position_size(qty, price, equity)
 
@@ -874,7 +889,7 @@ def open_stock_trade(symbol, price, analysis):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    symbol, order_id, price, stop_loss_price,
+                    symbol, order_id, price, stop_price,
                     target1, target2, target3, price,
                     qty, "ACTIVE", "PRE_BREAKOUT", score
                 )
@@ -895,7 +910,7 @@ def open_stock_trade(symbol, price, analysis):
 
 
 # ============================================================
-# ACTIVE TRADE MANAGEMENT & ACTIVE LEARNING (مفعل بالكامل)
+# ACTIVE TRADE MANAGEMENT & ACTIVE LEARNING
 # ============================================================
 
 def manage_active_trades():
@@ -930,15 +945,12 @@ def manage_active_trades():
             profit_pct = ((price - entry_price) / entry_price) * 100
             current_stop = stop_loss
 
-            # Move stop to breakeven
             if target1 and price >= target1 and current_stop < entry_price:
                 current_stop = entry_price
 
-            # Lock profit
             if target2 and price >= target2:
                 current_stop = max(current_stop, target1)
 
-            # Trailing stop
             if profit_pct >= 8 and new_highest > 0:
                 trailing_stop = new_highest * 0.97
                 current_stop = max(current_stop, trailing_stop)
@@ -986,15 +998,15 @@ def manage_active_trades():
                             )
                         )
 
-                    # تفعيل محرك التعلم الذاتي لإدخال نتيجة الصفقة المغلقة فوراً وتحديث النماذج
                     try:
                         if learning_engine and hasattr(learning_engine, "feed_trade_result"):
                             learning_engine.feed_trade_result(symbol, profit_pct, signal_score, strategy)
+                        update_adaptive_weights_based_on_performance()
                     except Exception:
                         pass
 
                     send_telegram(
-                        f"🔄 **إغلاق الصفقة**\n\n"
+                        f"🔄 **إغلاق الصفقة (إدارة ذكية)**\n\n"
                         f"📌 `{symbol}`\n"
                         f"💵 الدخول: `${entry_price:.2f}`\n"
                         f"💵 الخروج: `${price:.2f}`\n"
@@ -1040,7 +1052,7 @@ def send_telegram(message):
 
 
 # ============================================================
-# MAIN MARKET CYCLE (مفعل بالكامل مع PreBreakoutEngine)
+# MAIN MARKET CYCLE
 # ============================================================
 
 def main_trading_cycle():
@@ -1057,7 +1069,6 @@ def main_trading_cycle():
         last_cycle_started = time.time()
         manage_active_trades()
 
-        # الفحص الفعلي عبر PreBreakoutEngine
         symbols = pre_engine.scan_entire_market()
         if not symbols:
             last_cycle_finished = time.time()
@@ -1065,6 +1076,10 @@ def main_trading_cycle():
 
         active_symbols = get_active_symbols()
         candidates = []
+
+        # حساب الحد الأدنى المحدث بذكاء حسب كفاءة الصفقات السابقة
+        dynamic_boost = get_adaptive_weight("score_threshold_boost", 0.0)
+        effective_min_score = MIN_SIGNAL_SCORE + dynamic_boost
 
         for symbol in symbols:
             symbol = symbol.upper()
@@ -1085,7 +1100,7 @@ def main_trading_cycle():
             score = analysis["score"]
             save_snapshot(symbol, price, score, "WATCH", analysis)
 
-            if score >= MIN_SIGNAL_SCORE:
+            if score >= effective_min_score and analysis["trend_confirmed"]:
                 candidates.append((symbol, price, analysis))
 
         candidates.sort(key=lambda x: x[2]["score"], reverse=True)
@@ -1105,10 +1120,10 @@ def main_trading_cycle():
                 continue
 
             send_telegram(
-                f"🚨 **JALWE V4 — فرصة مؤكدة**\n\n"
+                f"🚨 **JALWE V4 — فرصة ذكية مؤكدة**\n\n"
                 f"📌 السهم: `{symbol}`\n"
                 f"💵 السعر: `${price:.2f}`\n"
-                f"🧠 Score: `{analysis['score']:.1f}/100`\n"
+                f"🧠 Score: `{analysis['score']:.1f}/100` (السوق: `{get_market_trend_status()}`)\n"
                 f"📊 RVOL: `{analysis['rvol'] if analysis['rvol'] else 'N/A'}`\n"
                 f"📈 VWAP: `${analysis['vwap']:.2f}`\n\n"
                 f"🟢 Entry: `${price:.2f}`\n"
@@ -1143,7 +1158,7 @@ def handle_messages(message):
 
     if "تشغيل الرادار المستقل" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 تم تشغيل رادار JALWE V4.", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 تم تشغيل رادار JALWE V4 (الوضع الذكي).", reply_markup=get_control_keyboard())
         return
 
     if "إيقاف البوت" in text:
@@ -1156,9 +1171,10 @@ def handle_messages(message):
             account = alpaca.get_account()
             positions = alpaca.list_positions()
             message_text = (
-                "💼 **المحفظة**\n\n"
+                "💼 **المحفظة الذكية**\n\n"
                 f"💵 Cash: `${float(account.cash):,.2f}`\n"
-                f"💰 Equity: `${float(account.equity):,.2f}`\n\n"
+                f"💰 Equity: `${float(account.equity):,.2f}`\n"
+                f"🌐 اتجاه السوق العام: `{get_market_trend_status()}`\n\n"
             )
             if not positions:
                 message_text += "لا توجد صفقات مفتوحة."
@@ -1188,13 +1204,13 @@ def handle_messages(message):
         return
 
     if "فحص السوق حالياً" in text:
-        bot.send_message(chat_id, "🔍 جاري فحص السوق...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🔍 جاري فحص السوق والتحليل الذكي...", reply_markup=get_control_keyboard())
         try:
             symbols = pre_engine.scan_entire_market()
             if not symbols:
                 bot.send_message(chat_id, "لا توجد فرص حالياً.")
                 return
-            msg = "🔍 **أبرز النتائج**\n\n"
+            msg = "🔍 **أبرز النتائج الذكية**\n\n"
             for symbol in symbols[:10]:
                 price, _, _, _ = get_market_data(symbol)
                 if price:
@@ -1206,7 +1222,6 @@ def handle_messages(message):
 
     if "فحص وتحفيز التعلم الذاتي" in text:
         try:
-            # تفعيل الاستدعاء الفعلي لمحرك التعلم لتحسين النماذج عند الطلب
             if learning_engine and hasattr(learning_engine, "optimize_models"):
                 learning_engine.optimize_models()
 
@@ -1214,6 +1229,7 @@ def handle_messages(message):
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*), AVG(profit_pct) FROM closed_trades_performance")
                 trades, avg_profit = cursor.fetchone()
+                boost = get_adaptive_weight("score_threshold_boost", 0.0)
 
             snapshots = get_saved_snapshots_count()
             bot.send_message(
@@ -1222,8 +1238,10 @@ def handle_messages(message):
                     "🧠 **حالة وتعلم النموذج الذكي**\n\n"
                     f"📚 Snapshots: `{snapshots}`\n"
                     f"📊 الصفقات المغلقة: `{trades or 0}`\n"
-                    f"📈 متوسط الأداء: `{avg_profit or 0:.2f}%`\n\n"
-                    "✅ تم ربط وتشغيل محرك التعلم الذاتي (Learning/Strategy Lab) بنجاح وتحديث الأوزان."
+                    f"📈 متوسط الأداء: `{avg_profit or 0:.2f}%`\n"
+                    f"⚙️ تعديل المعايير التلقائي: `{boost:+.1f}`\n"
+                    f"🌐 حالة السوق: `{get_market_trend_status()}`\n\n"
+                    "✅ يعمل النظام الذكي بكفاءة عالية."
                 ),
                 parse_mode="Markdown",
                 reply_markup=get_control_keyboard()
@@ -1248,7 +1266,7 @@ def handle_messages(message):
 
     symbol = text.replace("$", "").strip().upper()
     if 1 <= len(symbol) <= 6 and symbol.isalpha():
-        bot.send_message(chat_id, f"🔬 جاري تحليل `{symbol}`...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🔬 جاري التحليل الذكي لـ `{symbol}`...", reply_markup=get_control_keyboard())
         try:
             price, bars_1h, bars_15m, bars_5m = get_market_data(symbol)
             if not price:
@@ -1261,11 +1279,12 @@ def handle_messages(message):
             bot.send_message(
                 chat_id,
                 (
-                    f"🔬 **تحليل {symbol}**\n\n"
+                    f"🔬 **التحليل الذكي لـ {symbol}**\n\n"
                     f"💵 السعر: `${price:.2f}`\n"
                     f"🧠 Score: `{analysis['score']:.1f}/100`\n"
                     f"📊 RVOL: `{analysis['rvol'] or 'N/A'}`\n"
-                    f"📈 VWAP: `${analysis['vwap']:.2f}`\n\n"
+                    f"📈 VWAP: `${analysis['vwap']:.2f}`\n"
+                    f"🎯 مؤشر الاتجاه: `{'مؤكد ✅' if analysis['trend_confirmed'] else 'مخالف ⚠️'}`\n\n"
                     f"📋 **الأسباب:**\n{reasons or 'لا توجد إشارات كافية'}\n\n"
                     "ℹ️ التحليل اليدوي لا ينفذ صفقة تلقائياً."
                 ),
@@ -1310,7 +1329,7 @@ def schedule_loop():
 # ============================================================
 
 if __name__ == "__main__":
-    print("JALWE V4 — Paper Trading Engine Started")
+    print("JALWE V4 — Smart Adaptive Paper Trading Engine Started")
 
     try:
         bot.remove_webhook()
