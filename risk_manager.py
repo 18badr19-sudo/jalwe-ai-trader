@@ -1,5 +1,8 @@
 import logging
 
+# تفعيل إعدادات السجلات لتسجيل التحذيرات والأخطاء بوضوح
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 class RiskEngine:
     def __init__(self, max_daily_loss: float = 10.0, max_drawdown: float = 20.0):
         self.max_daily_loss = max_daily_loss
@@ -23,6 +26,7 @@ class RiskEngine:
         Validates whether a new trade complies with strict risk management rules.
         """
         if self.circuit_breaker_active:
+            logging.warning("Trade rejected: Circuit breaker is currently active.")
             return False
             
         # Ensure single trade doesn't risk more than 5% of total portfolio
@@ -32,7 +36,8 @@ class RiskEngine:
             
         return True
 
-# Compatibility helper
+# إنشاء كائن عام (Global Instance) لتكون الدالة التوافقية متصلة بنفس الحالة
+_global_risk_engine = RiskEngine()
+
 def check_risk_limits(daily_pnl: float, drawdown: float) -> bool:
-    engine = RiskEngine()
-    return engine.check_circuit_breaker(daily_pnl, drawdown)
+    return _global_risk_engine.check_circuit_breaker(daily_pnl, drawdown)
