@@ -12,13 +12,13 @@ class NewsEngine:
 
     def fetch_symbol_news(self, symbol: str) -> dict:
         """
-        Fetches and analyzes recent news/catalysts for a given symbol to evaluate sentiment and event risk.
+        Fetches and analyzes recent news/catalysts for a given symbol to evaluate sentiment and event risk safely.
         """
         headers = {
             "APCA-API-KEY-ID": self.api_key,
             "APCA-API-SECRET-KEY": self.api_secret
         }
-        params = {"symbols": symbol, "limit": 5}
+        params = {"symbols": symbol.upper(), "limit": 5}
 
         try:
             response = requests.get(self.news_url, headers=headers, params=params, timeout=8)
@@ -42,7 +42,7 @@ class NewsEngine:
                     sentiment_score = max(min(sentiment_score, 1.0), -1.0)
                     
                     return {
-                        "symbol": symbol,
+                        "symbol": symbol.upper(),
                         "sentiment_score": float(sentiment_score),
                         "catalyst_detected": len(news_items) > 0,
                         "news_count": len(news_items),
@@ -53,7 +53,7 @@ class NewsEngine:
 
         # Fallback neutral result if API fails
         return {
-            "symbol": symbol,
+            "symbol": symbol.upper(),
             "sentiment_score": 0.0,
             "catalyst_detected": False,
             "news_count": 0,
@@ -62,5 +62,15 @@ class NewsEngine:
 
 # Compatibility helper
 def analyze_news_catalyst(symbol: str) -> dict:
-    engine = NewsEngine()
-    return engine.fetch_symbol_news(symbol)
+    try:
+        engine = NewsEngine()
+        return engine.fetch_symbol_news(symbol)
+    except Exception as e:
+        logging.error(f"Error in analyze_news_catalyst helper for {symbol}: {e}")
+        return {
+            "symbol": symbol.upper(),
+            "sentiment_score": 0.0,
+            "catalyst_detected": False,
+            "news_count": 0,
+            "status": "ERROR"
+        }
