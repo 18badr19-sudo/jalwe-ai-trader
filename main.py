@@ -352,7 +352,6 @@ def get_active_symbols():
 
 
 def get_adaptive_weight(factor_name, default_val=0.0):
-    """استرجاع التعديلات الذكية للأوزان بناءً على الأداء السابق"""
     try:
         with db_connection() as conn:
             cursor = conn.cursor()
@@ -364,7 +363,6 @@ def get_adaptive_weight(factor_name, default_val=0.0):
 
 
 def update_adaptive_weights_based_on_performance():
-    """التعلم الذاتي الفعلي: رفع الشروط أو خفضها بناءً على نسبة النجاح والخسارة"""
     try:
         with db_connection() as conn:
             cursor = conn.cursor()
@@ -387,11 +385,10 @@ def update_adaptive_weights_based_on_performance():
 
 
 # ============================================================
-# MARKET DATA & MACRO TREND (MARKET-ADAPTIVE RISK)
+# MARKET DATA & MACRO TREND
 # ============================================================
 
 def get_market_trend_status():
-    """التحقق من حالة السوق العام (مثل SPY) لتحديد ما إذا كان صاعداً أم هابطاً أو في انهيار"""
     try:
         bars = alpaca.get_bars("SPY", tradeapi.TimeFrame(1, tradeapi.TimeFrameUnit.Day), limit=15).df
         if bars is not None and len(bars) >= 15:
@@ -399,7 +396,6 @@ def get_market_trend_status():
             current_spy = bars["close"].iloc[-1]
             prev_spy = bars["close"].iloc[-2]
             
-            # فحص الانهيار الحاد (Crash Protection)
             if current_spy < (ma10 * 0.97) and current_spy < prev_spy:
                 return "CRASH_PANIC"
             elif current_spy < ma10:
@@ -645,12 +641,7 @@ def evaluate_options_flow(symbol):
     return 0.0, []
 
 
-# ============================================================
-# ORDER BOOK / TAPE READING (فحص السيولة اللحظية لصد الفخاخ)
-# ============================================================
-
 def check_order_book_imbalance(symbol):
-    """التحقق من ضغط طلبات الشراء مقابل البيع في سجل الأوامر المباشر"""
     try:
         book = alpaca.get_latest_orderbook(symbol)
         if book and hasattr(book, 'bids') and hasattr(book, 'asks'):
@@ -662,11 +653,11 @@ def check_order_book_imbalance(symbol):
                     return True, f"🛡️ ضغط شراء قوي في سجل الأوامر ({imbalance:.1f}x)"
     except Exception:
         pass
-    return True, ""  # إذا لم تتوفر البيئة الافتراضية للبوك يتم التجاوز بسلاسة دون تعطيل
+    return True, ""
 
 
 # ============================================================
-# TECHNICAL / OPPORTUNITY ANALYSIS (WITH MULTI-TIMEFRAME)
+# TECHNICAL / OPPORTUNITY ANALYSIS
 # ============================================================
 
 def evaluate_momentum_and_strategies(
@@ -750,7 +741,6 @@ def evaluate_momentum_and_strategies(
     score += opt_score
     reasons.extend(opt_reasons)
 
-    # فحص سجل الأوامر
     ok_book, book_reason = check_order_book_imbalance(symbol)
     if book_reason:
         reasons.append(book_reason)
@@ -768,7 +758,7 @@ def evaluate_momentum_and_strategies(
 
 
 # ============================================================
-# POSITION SIZING & MARKET-ADAPTIVE RISK
+# POSITION SIZING & RISK
 # ============================================================
 
 def calculate_position_size(price, stop_price):
@@ -785,7 +775,7 @@ def calculate_position_size(price, stop_price):
         market_status = get_market_trend_status()
         
         if market_status == "CRASH_PANIC":
-            return 0  # منع فتح صفقات نهائياً في حالة الانهيار
+            return 0
         elif market_status == "BEARISH":
             risk_pct = RISK_PER_TRADE_PCT / 2.0
 
@@ -819,9 +809,8 @@ def calculate_position_size(price, stop_price):
 def can_open_new_trade(symbol):
 
     try:
-        # فحص حالة الانهيار العام للسوق مسبقاً
         if get_market_trend_status() == "CRASH_PANIC":
-            return False, "السوق في حالة هلع/انهيار (CRASH_PANIC)، تم تعليق الشراء الآلي كلياً لحماية رأس المال."
+            return False, "السوق في حالة هلع/انهيار (CRASH_PANIC)، تم تعليق الشراء الآلي كلياً."
 
         active_symbols = get_active_symbols()
         if symbol in active_symbols:
@@ -841,7 +830,7 @@ def can_open_new_trade(symbol):
 
 
 # ============================================================
-# SAVE OPPORTUNITY SNAPSHOT
+# SAVE SNAPSHOT
 # ============================================================
 
 def save_snapshot(symbol, price, score, status, analysis):
@@ -941,7 +930,7 @@ def open_stock_trade(symbol, price, analysis):
 
 
 # ============================================================
-# ACTIVE TRADE MANAGEMENT & SCALE-OUT (البيع الجزئي الذكي)
+# ACTIVE TRADE MANAGEMENT (مع البيع الجزئي الذكي)
 # ============================================================
 
 def manage_active_trades():
@@ -976,11 +965,9 @@ def manage_active_trades():
             profit_pct = ((price - entry_price) / entry_price) * 100
             current_stop = stop_loss
 
-            # ====================================================
-            # ميزة البيع الجزئي (Scale-Out / Partial Take Profit)
-            # ====================================================
+            # جني أرباح جزئي عند الهدف الأول
             if target1 and price >= target1 and scale_out_done == 0 and qty > 1:
-                scale_qty = qty // 2  # بيع نصف الكمية
+                scale_qty = qty // 2
                 remaining_qty = qty - scale_qty
 
                 try:
@@ -993,8 +980,6 @@ def manage_active_trades():
                     )
 
                     partial_profit_usd = (price - entry_price) * scale_qty
-                    
-                    # تحديث الوقف إلى نقطة الدخول (Break-even) والكمية المتبقية
                     current_stop = entry_price
                     
                     with db_connection() as conn:
@@ -1011,15 +996,14 @@ def manage_active_trades():
                         f"🎯 **تحقيق الهدف الأول (جني أرباح جزئي)**\n\n"
                         f"📌 `{symbol}`\n"
                         f"💵 سعر البيع الجزئي: `${price:.2f}`\n"
-                        f"📦 تم بيع: `{scale_qty}` سهم (50% من الكمية)\n"
+                        f"📦 تم بيع: `{scale_qty}` سهم (50%)\n"
                         f"💰 ربح جزئي: `${partial_profit_usd:+.2f}`\n"
-                        f"🛡️ **الإجراء الآمن:** تم تحريك وقف الخسارة إلى نقطة الدخول (`${entry_price:.2f}`) الصفقة أصبحت محمية 100%!"
+                        f"🛡️ **الأمان:** تم رفع الوقف لنقطة الدخول (`${entry_price:.2f}`)!"
                     )
                     continue
                 except Exception as e:
                     log_event("SCALE_OUT_ERROR", str(e)[:500], symbol)
 
-            # تحريك الوقف تصاعدياً بعد الهدف الثاني أو الترانلينج
             if target2 and price >= target2:
                 current_stop = max(current_stop, target1)
 
@@ -1082,7 +1066,7 @@ def manage_active_trades():
                         f"📌 `{symbol}`\n"
                         f"💵 الدخول: `${entry_price:.2f}`\n"
                         f"💵 الخروج: `${price:.2f}`\n"
-                        f"📊 النتيجة الإجمالية للسهم: `{profit_pct:+.2f}%`\n"
+                        f"📊 النتيجة: `{profit_pct:+.2f}%`\n"
                         f"🎯 السبب: `{exit_reason}`"
                     )
 
@@ -1141,7 +1125,6 @@ def main_trading_cycle():
         last_cycle_started = time.time()
         manage_active_trades()
 
-        # فحص حالة الانهيار العام للسوق قبل فحص الفرص
         if get_market_trend_status() == "CRASH_PANIC":
             last_cycle_finished = time.time()
             return
@@ -1368,7 +1351,7 @@ def handle_messages(message):
                 reply_markup=get_control_keyboard()
             )
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_mall=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
         return
 
     bot.send_message(chat_id, "اختر أمرًا من القائمة أو أرسل رمز سهم صحيح.", reply_markup=get_control_keyboard())
