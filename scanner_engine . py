@@ -1,0 +1,65 @@
+import os
+from finvizfinance.screener.overview import Overview
+from alpaca_trade_api.rest import REST
+
+# Load API keys from environment variables (Standard practice for GitHub repos)
+API_KEY = os.getenv('ALPACA_API_KEY', 'YOUR_API_KEY_HERE')
+SECRET_KEY = os.getenv('ALPACA_SECRET_KEY', 'YOUR_SECRET_KEY_HERE')
+BASE_URL = os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+
+alpaca = REST(API_KEY, SECRET_KEY, BASE_URL, api_version='v2')
+
+def run_jalwe_radar():
+    """
+    Scans the market for pre-pump breakout stocks.
+    Conditions: Price < $15, Float < 20M, High Relative Volume.
+    """
+    print("========================================")
+    print("[+] Starting JALWE V4 Independent Radar...")
+    print("========================================")
+    
+    foverview = Overview()
+    
+    # Strict hunting filters
+    filters_dict = {
+        'Price': 'Under $15',
+        'Float': 'Under 20M',
+        'Relative Volume': 'Over 1.5',
+        'Industry': 'Stocks only (ex-Funds)'
+    }
+    
+    try:
+        foverview.set_filter(filters_dict=filters_dict)
+        df = foverview.screener_view()
+        
+        if df.empty:
+            print("[!] Radar: No stocks matching the criteria were found.")
+            return []
+            
+        tickers = df['Ticker'].tolist()
+        print(f"[-] Radar initially caught {len(tickers)} stocks: {tickers}")
+        print("[-] Checking tradability status via Alpaca...")
+        
+        valid_targets = []
+        
+        # Filter for tradable active assets on Alpaca to avoid order rejection
+        for ticker in tickers:
+            try:
+                asset = alpaca.get_asset(ticker)
+                if asset.tradable and asset.status == 'active':
+                    valid_targets.append(ticker)
+            except Exception as e:
+                print(f"[!] Excluded {ticker}: Not tradable on Alpaca.")
+                
+        print(f"[✔] Final target list ready for hunting: {valid_targets}")
+        
+        # Return the final list to be used by the main bot engine
+        return valid_targets
+
+    except Exception as e:
+        print(f"[X] Error in Radar Engine: {str(e)}")
+        return []
+
+# For independent testing before integration
+if __name__ == "__main__":
+    targets = run_jalwe_radar()
