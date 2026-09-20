@@ -5,6 +5,7 @@ import schedule
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import alpaca_trade_api as tradeapi
+import pandas as pd
 
 from pre_breakout_engine import PreBreakoutEngine
 from target_risk_engine import TargetRiskEngine
@@ -62,6 +63,7 @@ def init_db():
 
 init_db()
 
+# تهيئة المحركات كاملة بدون أي نقص
 learning_engine = ChartAndLearningEngine()
 pre_engine = PreBreakoutEngine(alpaca, learning_engine)
 risk_engine = TargetRiskEngine(alpaca)
@@ -69,7 +71,7 @@ options_engine = OptionsFlowEngine(alpaca)
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "النظام الذكي الشامل (متعدد الأطر + تحليل الأخبار) يعمل بكفاءة 🚀"
+last_error = "النظام الذكي الشامل (محركات كاملة + شمعات متعددة الأطر) يعمل بكفاءة 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -80,7 +82,6 @@ def get_control_keyboard():
         KeyboardButton("💼 محفظتي وأسهمي"),
         KeyboardButton("📊 أداء محفظتي والربح"),
         KeyboardButton("⚙️ حالة الأوامر المفتوحة"),
-        KeyboardButton("📊 فحص السوق حالياً"),
         KeyboardButton("🔍 فحص نموذج التعلم الذاتي"),
         KeyboardButton("⚠️ تقرير النظام والأخطاء")
     )
@@ -97,16 +98,18 @@ def get_saved_snapshots_count():
     except Exception:
         return 0
 
-# (تحديث 1): جلب البيانات على أكثر من فريم زمني
+# جلب بيانات الشمعات وتحويلها محلياً لـ 3 فريمات (ساعة، 15د، 5د) لمنع التعليق
 def get_market_data(symbol):
     price = None
-    bars_day = None
+    bars_1h = None
     bars_15m = None
+    bars_5m = None
     try:
-        bars_day = alpaca.get_bars(symbol.upper(), tradeapi.TimeFrame.Day, limit=10).df
-        bars_15m = alpaca.get_bars(symbol.upper(), tradeapi.TimeFrame(15, tradeapi.TimeFrameUnit.Minute), limit=10).df
-        if not bars_day.empty:
-            price = float(bars_day['close'].iloc[-1])
+        bars_5m = alpaca.get_bars(symbol.upper(), tradeapi.TimeFrame(5, tradeapi.TimeFrameUnit.Minute), limit=150).df
+        if not bars_5m.empty:
+            price = float(bars_5m['close'].iloc[-1])
+            bars_15m = bars_5m.resample('15T').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
+            bars_1h = bars_5m.resample('1H').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
     except Exception:
         pass
     
@@ -118,9 +121,8 @@ def get_market_data(symbol):
         except Exception:
             pass
     
-    return price, bars_day, bars_15m
+    return price, bars_1h, bars_15m, bars_5m
 
-# (تحديث 2): محرك تحليل الأخبار والمشاعر
 def get_news_sentiment(symbol):
     score = 0
     reasons = []
@@ -152,12 +154,11 @@ def get_news_sentiment(symbol):
         pass
     return score, reasons
 
-# (تحديث 3): دمج كل الذكاء في التقييم
-def evaluate_momentum_and_strategies(symbol, price, bars_day, bars_15m):
-    score = 40 # درجة البداية
+def evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m):
+    score = 40 
     reasons = []
 
-    # 1. ذاكرة التعلم (Reinforcement Learning)
+    # 1. ذاكرة التعلم واستخدام المحركات
     try:
         conn = sqlite3.connect("jalwe_learning.db")
         cursor = conn.cursor()
@@ -174,33 +175,35 @@ def evaluate_momentum_and_strategies(symbol, price, bars_day, bars_15m):
     except Exception:
         pass
 
-    # 2. تحليل الأطر الزمنية المتعددة (Multi-Timeframe)
-    if bars_day is not None and len(bars_day) >= 5:
-        recent_high = bars_day['high'].iloc[:-1].max()
-        vol_mean = bars_day['volume'].mean() if 'volume' in bars_day.columns else 1000
-        last_vol = bars_day['volume'].iloc[-1] if 'volume' in bars_day.columns else 1000
-
-        if price >= recent_high * 0.98:
+    # 2. فريم الساعة (الاتجاه العام)
+    if bars_1h is not None and len(bars_1h) >= 5:
+        ma_5_1h = bars_1h['close'].rolling(window=5).mean().iloc[-1]
+        if price > ma_5_1h:
             score += 15
-            reasons.append("🚀 اختراق قوي للقمة اليومية (Breakout Surge)")
-        
-        if last_vol > vol_mean * 1.3:
-            score += 10
-            reasons.append("🔥 حجم تداول عالٍ وانفجار سيولة يومي")
+            reasons.append("📈 الاتجاه العام (ساعة): إيجابي وفي مسار صاعد")
+        else:
+            score -= 10
+            reasons.append("📉 الاتجاه العام (ساعة): سلبي أو ضعيف")
 
-    # فحص الزخم اللحظي (15 دقيقة) - مفيد لاقتناص الدخول
+    # 3. فريم 15 دقيقة (السيولة والزخم)
     if bars_15m is not None and len(bars_15m) >= 5:
-        ma_5_15m = bars_15m['close'].rolling(window=5).mean().iloc[-1]
-        if price >= ma_5_15m:
+        vol_mean = bars_15m['volume'].mean() if 'volume' in bars_15m.columns else 1000
+        last_vol = bars_15m['volume'].iloc[-1] if 'volume' in bars_15m.columns else 1000
+        if last_vol > vol_mean * 1.3:
             score += 15
-            reasons.append("⏱️ تقاطع إيجابي لحظي (15 دقيقة) - سيولة تدخل الآن")
+            reasons.append("🔥 انفجار سيولة (15 دقيقة): أحجام قوية تدخل الآن")
+
+    # 4. فريم 5 دقائق (نقطة الدخول اللحظية Sniper Entry)
+    if bars_5m is not None and len(bars_5m) >= 5:
+        recent_high_5m = bars_5m['high'].iloc[:-1].max()
+        if price >= recent_high_5m * 0.99:
+            score += 15
+            reasons.append("🎯 اختراق لحظي (5 دقائق): نقطة قنص ممتازة")
         else:
             score -= 5
-            reasons.append("📉 السهم يشهد ضغط بيع لحظي مؤقت")
-    else:
-        score += 10
+            reasons.append("⏳ انتظار (5 دقائق): السعر يحتاج تأكيد الاختراق")
 
-    # 3. تحليل الأخبار (News Sentiment)
+    # 5. تحليل الأخبار
     news_score, news_reasons = get_news_sentiment(symbol)
     score += news_score
     reasons.extend(news_reasons)
@@ -216,14 +219,14 @@ def handle_messages(message):
 
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل رادار تحدي التدوير التراكمي الشامل.**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل رادار تحدي التدوير الشامل (بالمحركات والشمعات).**", reply_markup=get_control_keyboard())
         return
     elif "إيقاف البوت" in text:
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
         return
     elif "🎯 إضافة سهم للمتابعة" in text:
-        bot.send_message(chat_id, "🎯 **وضع التحليل الشامل جاهز!** أرسل رمز السهم (مثال: `TSLA`).", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🎯 **وضع التحليل جاهز!** أرسل رمز السهم (مثال: `AAPL`).", reply_markup=get_control_keyboard())
         return
     elif "💼 محفظتي وأسهمي" in text:
         bot.send_message(chat_id, "⏳ جاري جلب تفاصيل محفظتك الحالية...", reply_markup=get_control_keyboard())
@@ -283,46 +286,23 @@ def handle_messages(message):
         except Exception:
             closed_count, avg_win = 0, 0.0
 
-        bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي والتدوير:**\n- الحالات المسجلة: `{total}`\n- الصفقات المغلقة: `{closed_count}`\n- متوسط أداء التعلم: `{avg_win:.2f}%`\n- الميزات: `تحليل أطر متعددة + قراءة أخبار + وقف متحرك.`", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي والتدوير:**\n- الحالات المسجلة: `{total}`\n- الصفقات المغلقة: `{closed_count}`\n- متوسط أداء التعلم: `{avg_win:.2f}%`\n- المحركات النشطة: `PreBreakout, TargetRisk, OptionsFlow, ChartLearning.`", reply_markup=get_control_keyboard())
         return
     elif "تقرير النظام والأخطاء" in text:
         bot.send_message(chat_id, f"🛠️ **التشخيص:**\n{last_error}\nالوضع: `تشغيل ذاتي بالذكاء الاصطناعي 24/7`", reply_markup=get_control_keyboard())
-        return
-    elif "فحص السوق حالياً" in text:
-        bot.send_message(chat_id, "⏳ جاري فحص السوق وتطبيق معايير الذكاء المتقدمة...", reply_markup=get_control_keyboard())
-        try:
-            symbols = pre_engine.scan_entire_market()
-            viable = []
-            for sym in symbols:
-                p, bs_day, bs_15m = get_market_data(sym)
-                if p and 0.25 <= p <= 60.0:
-                    sc, _ = evaluate_momentum_and_strategies(sym, p, bs_day, bs_15m)
-                    if sc >= 72:
-                        viable.append((sym, p, sc))
-                if len(viable) >= 3:
-                    break
-            if not viable:
-                bot.send_message(chat_id, "📊 لم تتطابق الشروط الصارمة مع أي سهم حالياً.", reply_markup=get_control_keyboard())
-            else:
-                msg = "🚀 **الفرص المرشحة لتحدي التدوير (شامل الأخبار والزخم):**\n\n"
-                for s, pr, sc in viable:
-                    msg += f"• `{s}` | السعر: `${pr}` | التقييم الذكي: `{sc}%`\n"
-                bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
-        except Exception as e:
-            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
 
     # تحليل سهم يدوي
     symbol_to_check = text.replace("$", "").strip().upper()
     if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
-        bot.send_message(chat_id, f"🤖 فحص السهم `{symbol_to_check}` وفق التحليل المتقدم...", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🤖 فحص الشمعات والمحركات للسهم `{symbol_to_check}`...", reply_markup=get_control_keyboard())
         try:
-            price, bars_day, bars_15m = get_market_data(symbol_to_check)
+            price, bars_1h, bars_15m, bars_5m = get_market_data(symbol_to_check)
             if not price or price <= 0:
                 bot.send_message(chat_id, f"⚠️ تعذر جلب بيانات `{symbol_to_check}`.", reply_markup=get_control_keyboard())
                 return
             
-            score, reasons = evaluate_momentum_and_strategies(symbol_to_check, price, bars_day, bars_15m)
+            score, reasons = evaluate_momentum_and_strategies(symbol_to_check, price, bars_1h, bars_15m, bars_5m)
             reasons_str = "\n".join([f"• {r}" for r in reasons])
 
             analysis_msg = (
@@ -330,7 +310,7 @@ def handle_messages(message):
                 f"📌 الرمز: `{symbol_to_check}`\n"
                 f"💵 **السعر:** `${price}`\n"
                 f"⚡ تقييم الذكاء الاصطناعي: `{score}%`\n\n"
-                f"📋 **الأسباب الفنية، الأخبار، والذاكرة:**\n{reasons_str}\n\n"
+                f"📋 **تحليل الشمعات والمحركات:**\n{reasons_str}\n\n"
             )
 
             if score >= 75:
@@ -375,7 +355,7 @@ def handle_messages(message):
                 except Exception as ex:
                     analysis_msg += f"⚠️ تعذر تنفيذ أمر الشراء: {str(ex)[:40]}"
             else:
-                analysis_msg += "🔴 **لم يتم التنفيذ الآلي:** المؤشرات (زخم/أخبار) غير كافية."
+                analysis_msg += "🔴 **لم يتم التنفيذ الآلي:** الشروط الفنية للشمعات والمحركات غير كافية."
 
             bot.send_message(chat_id, analysis_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
 
@@ -393,7 +373,7 @@ def manage_active_trades_and_trailing():
         conn.close()
 
         for symbol, entry_price, stop_loss_price, highest_price, qty, status in trades:
-            curr_price, _, _ = get_market_data(symbol)
+            curr_price, _, _, _ = get_market_data(symbol)
             if not curr_price:
                 continue
 
@@ -471,7 +451,7 @@ def send_weekly_performance_report():
             f"• إجمالي الصفقات: `{total_trades}`\n"
             f"• نسبة النجاح: `{win_rate:.1f}%`\n"
             f"• متوسط العائد: `{avg_profit:.2f}%`\n\n"
-            f"🧠 *الذكاء الاصطناعي قام بتحديث أوزان الذاكرة.*"
+            f"🧠 *الذكاء الاصطناعي قام بتحديث أوزان الذاكرة والمحركات.*"
         )
         if TELEGRAM_CHAT_ID:
             bot.send_message(TELEGRAM_CHAT_ID, report_msg, parse_mode="Markdown")
@@ -485,14 +465,15 @@ def main_trading_cycle():
     try:
         manage_active_trades_and_trailing()
 
+        # استدعاء محرك البحث عن الفرص الأصلي المربوط بـ pre_engine
         symbols = pre_engine.scan_entire_market()
         if not symbols:
             return
             
         for sym in symbols:
-            price, bars_day, bars_15m = get_market_data(sym)
+            price, bars_1h, bars_15m, bars_5m = get_market_data(sym)
             if price and 0.25 <= price <= 60.0:
-                score, _ = evaluate_momentum_and_strategies(sym, price, bars_day, bars_15m)
+                score, _ = evaluate_momentum_and_strategies(sym, price, bars_1h, bars_15m, bars_5m)
                 
                 if score >= 82:
                     try:
@@ -526,7 +507,7 @@ def main_trading_cycle():
                         conn.close()
                         
                         alert_msg = (
-                            f"🚀 تحدي التدوير — **تنفيذ آلي!**\n"
+                            f"🚀 تحدي التدوير — **تنفيذ آلي بالمحركات!**\n"
                             f"📌 الرمز: `{sym}`\n"
                             f"💵 سعر الشراء: `${price}`\n"
                             f"📊 التقييم الشامل: `{score}%`\n"
@@ -544,7 +525,7 @@ schedule.every(15).minutes.do(main_trading_cycle)
 schedule.every().friday.at("21:00").do(send_weekly_performance_report)
 
 if __name__ == "__main__":
-    print("INFO - JALWE V4 AI Engine (Multi-TF & News) is running...")
+    print("INFO - JALWE V4 AI Engine (All Modules & Multi-TF Candles) is running...")
     try:
         bot.remove_webhook()
         time.sleep(2)
