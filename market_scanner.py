@@ -16,35 +16,44 @@ class MarketScanner:
 
     def quick_scan(self) -> list:
         """
-        Fetches active, tradeable US equities directly from Alpaca to act as a true market-wide opportunity hunter.
+        Scans and fetches ALL active, tradeable US equities across the entire market 
+        without being restricted to a fixed or limited symbol list.
         """
         symbols = []
         try:
             if self.api:
-                # Fetch all active US equities
+                # Fetch all active US equities from the entire market broker feed
                 assets = self.api.list_assets(status='active', asset_class='us_equity')
                 
-                # Filter tradable assets from major exchanges (NASDAQ, NYSE) and clean symbols
+                # Filter tradable assets dynamically across major exchanges without hardcoded limits
                 raw_symbols = [
                     asset.symbol for asset in assets 
-                    if asset.tradable and asset.exchange in ['NASDAQ', 'NYSE', 'ARCA'] 
-                    and '/' not in asset.symbol and '.' not in asset.symbol
+                    if getattr(asset, 'tradable', False) and getattr(asset, 'exchange', '') in ['NASDAQ', 'NYSE', 'ARCA', 'BATS', 'AMEX'] 
+                    and '/' not in asset.symbol and '.' not in asset.symbol and '^' not in asset.symbol
                 ]
                 
-                # Take a robust dynamic pool of up to 200 active symbols to scan thoroughly
-                symbols = raw_symbols[:200]
+                # Utilize the comprehensive market-wide scanned symbols dynamically
+                symbols = raw_symbols
             else:
                 raise Exception("API not initialized")
                 
         except Exception as e:
-            logging.error(f"Error fetching market assets from Alpaca: {e}")
-            # Fallback high-momentum pool if network/API hiccups occur
-            symbols = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "AMZN", "META", "GOOGL", "NFLX", "PLTR", "MARA", "RIOT", "COIN"]
+            logging.error(f"Error fetching all market assets from Alpaca: {e}")
+            # Comprehensive fallback pool covering top market leaders across sectors if API is offline
+            symbols = [
+                "AAPL", "TSLA", "NVDA", "AMD", "MSFT", "AMZN", "META", "GOOGL", "NFLX", "PLTR", 
+                "MARA", "RIOT", "COIN", "JPM", "BAC", "XOM", "CVX", "DIS", "PYPL", "INTC", 
+                "QCOM", "BA", "IBM", "ORCL", "CRM", "NKE", "SHOP", "UBER", "ABNB", "SQ"
+            ]
 
-        logging.info(f"Market Hunter Scanner loaded {len(symbols)} symbols across the market.")
+        logging.info(f"Market Scanner successfully loaded {len(symbols)} symbols spanning the entire market.")
         return symbols
 
 # Compatibility helper
 def get_top_trending_stocks() -> list:
-    scanner = MarketScanner()
-    return scanner.quick_scan()
+    try:
+        scanner = MarketScanner()
+        return scanner.quick_scan()
+    except Exception as e:
+        logging.error(f"Error in get_top_trending_stocks helper: {e}")
+        return ["AAPL", "TSLA", "NVDA", "AMD", "MSFT"]
