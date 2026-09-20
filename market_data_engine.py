@@ -50,34 +50,46 @@ class MarketDataEngine:
             logging.warning(f"Could not fetch live Alpaca bars for {symbol}: {e}. Using fallback data.")
 
         # Fallback mechanism if live API request fails temporarily
-        np.random.seed(42)
-        base_price = 150.0 if symbol == "AAPL" else (250.0 if symbol == "TSLA" else 15.0)
-        data = {
-            "timestamp": pd.date_range(end=pd.Timestamp.now(), periods=limit, freq="1Min"),
-            "open": base_price + np.random.randn(limit).cumsum() * 0.2,
-            "high": base_price + np.random.randn(limit).cumsum() * 0.2 + 0.5,
-            "low": base_price + np.random.randn(limit).cumsum() * 0.2 - 0.5,
-            "close": base_price + np.random.randn(limit).cumsum() * 0.2,
-            "volume": np.random.randint(500, 5000, size=limit)
-        }
-        return pd.DataFrame(data)
+        try:
+            np.random.seed(42)
+            base_price = 150.0 if symbol.upper() == "AAPL" else (250.0 if symbol.upper() == "TSLA" else 15.0)
+            data = {
+                "timestamp": pd.date_range(end=pd.Timestamp.now(), periods=limit, freq="1min"),
+                "open": base_price + np.random.randn(limit).cumsum() * 0.2,
+                "high": base_price + np.random.randn(limit).cumsum() * 0.2 + 0.5,
+                "low": base_price + np.random.randn(limit).cumsum() * 0.2 - 0.5,
+                "close": base_price + np.random.randn(limit).cumsum() * 0.2,
+                "volume": np.random.randint(500, 5000, size=limit)
+            }
+            return pd.DataFrame(data)
+        except Exception as fallback_error:
+            logging.error(f"Error generating fallback data for {symbol}: {fallback_error}")
+            return pd.DataFrame()
 
     def validate_data_quality(self, df: pd.DataFrame) -> bool:
         """
         Checks for missing values, stale quotes, or abnormal data corruption.
         """
-        if df is None or df.empty:
+        try:
+            if df is None or df.empty:
+                return False
+            if df.isnull().sum().sum() > 0:
+                return False
+            if "volume" in df.columns and (df["volume"] < 0).any():
+                return False
+            return True
+        except Exception as e:
+            logging.error(f"Error during data quality validation: {e}")
             return False
-        if df.isnull().sum().sum() > 0:
-            return False
-        if (df["volume"] < 0).any():
-            return False
-        return True
 
 # Compatibility helper to prevent ImportError
 def get_latest_stock_quote(symbol: str):
-    engine = MarketDataEngine()
-    df = engine.fetch_latest_bars(symbol, limit=1)
-    if not df.empty:
-        return df.iloc[-1].to_dict()
-    return {}
+    try:
+        engine = MarketDataEngine()
+        df = engine.fetch_latest_bars(symbol, limit=1)
+        if not df.empty:
+            return df.iloc[-1].to_dict()
+        return {}
+    except Exception as e:
+        logging.error(f"Error in get_latest_stock_quote helper for {symbol}: {e}")
+        return {}
