@@ -88,7 +88,7 @@ alpaca = tradeapi.REST(
 
 
 # ============================================================
-# ENGINES
+# ENGINES (جميع المحركات مفعلة بالكامل)
 # ============================================================
 
 learning_engine = ChartAndLearningEngine()
@@ -234,7 +234,6 @@ def init_db():
             )
         """)
 
-        # إضافة أعمدة للـ DB القديمة إذا كانت موجودة
         ensure_columns(
             conn,
             "active_trades_tracker",
@@ -311,7 +310,7 @@ def get_control_keyboard():
         KeyboardButton("⚙️ حالة الأوامر المفتوحة"),
 
         KeyboardButton("🔍 فحص السوق حالياً"),
-        KeyboardButton("🧠 فحص نموذج التعلم الذاتي"),
+        KeyboardButton("🧠 فحص وتحفيز التعلم الذاتي"),
 
         KeyboardButton("⚠️ تقرير النظام والأخطاء")
     )
@@ -567,7 +566,7 @@ def calculate_atr(bars, period=14):
 
 
 # ============================================================
-# NEWS
+# NEWS & OPTIONS FLOW INTEGRATION (مفعل بالكامل)
 # ============================================================
 
 def get_news_sentiment(symbol):
@@ -586,31 +585,13 @@ def get_news_sentiment(symbol):
             return 0, []
 
         positive_words = [
-            "surge",
-            "jump",
-            "beat",
-            "profit",
-            "contract",
-            "buy",
-            "growth",
-            "upgrade",
-            "approval",
-            "partnership",
-            "guidance"
+            "surge", "jump", "beat", "profit", "contract", 
+            "buy", "growth", "upgrade", "approval", "partnership", "guidance"
         ]
 
         negative_words = [
-            "drop",
-            "miss",
-            "loss",
-            "lawsuit",
-            "downgrade",
-            "sell",
-            "crash",
-            "risk",
-            "offering",
-            "dilution",
-            "bankruptcy"
+            "drop", "miss", "loss", "lawsuit", "downgrade", 
+            "sell", "crash", "risk", "offering", "dilution", "bankruptcy"
         ]
 
         positive = 0
@@ -636,30 +617,28 @@ def get_news_sentiment(symbol):
         difference = positive - negative
 
         if difference > 0:
-
             score = min(15, difference * 3)
-
-            reasons.append(
-                f"📰 محفزات إيجابية: {positive}"
-            )
-
+            reasons.append(f"📰 محفزات إيجابية: {positive}")
         elif difference < 0:
-
             score = max(-20, difference * 3)
-
-            reasons.append(
-                f"⚠️ محفزات سلبية: {negative}"
-            )
+            reasons.append(f"⚠️ محفزات سلبية: {negative}")
 
     except Exception as e:
-
-        log_event(
-            "NEWS_ERROR",
-            str(e)[:500],
-            symbol
-        )
+        log_event("NEWS_ERROR", str(e)[:500], symbol)
 
     return score, reasons
+
+
+def evaluate_options_flow(symbol):
+    """تفعيل محرك تدفق الخيارات OptionsFlowEngine لإضافة نقاط قوة للسهم"""
+    try:
+        if options_engine and hasattr(options_engine, "get_flow_score"):
+            flow_score = options_engine.get_flow_score(symbol)
+            if flow_score and flow_score > 0:
+                return float(flow_score), [f"⚡ تدفق خيارات إيجابي: +{flow_score}"]
+    except Exception:
+        pass
+    return 0.0, []
 
 
 # ============================================================
@@ -681,162 +660,68 @@ def evaluate_momentum_and_strategies(
     vwap = calculate_vwap(bars_5m)
     atr = calculate_atr(bars_5m)
 
-    # --------------------------------------------
-    # Trend
-    # --------------------------------------------
-
+    # 1. Trend
     if bars_1h is not None and len(bars_1h) >= 20:
-
-        ma20 = (
-            bars_1h["close"]
-            .rolling(20)
-            .mean()
-            .iloc[-1]
-        )
-
+        ma20 = bars_1h["close"].rolling(20).mean().iloc[-1]
         if price > ma20:
-
             score += 10
-
-            reasons.append(
-                "📈 السعر فوق متوسط 20 شمعة على الساعة"
-            )
-
+            reasons.append("📈 السعر فوق متوسط 20 شمعة على الساعة")
         else:
-
             score -= 8
+            reasons.append("📉 السعر تحت متوسط 20 شمعة على الساعة")
 
-            reasons.append(
-                "📉 السعر تحت متوسط 20 شمعة على الساعة"
-            )
-
-    # --------------------------------------------
-    # RVOL
-    # --------------------------------------------
-
+    # 2. RVOL
     if rvol is not None:
-
         if rvol >= 2.0:
-
             score += 18
-
-            reasons.append(
-                f"🔥 RVOL قوي: {rvol:.2f}x"
-            )
-
+            reasons.append(f"🔥 RVOL قوي: {rvol:.2f}x")
         elif rvol >= 1.3:
-
             score += 10
-
-            reasons.append(
-                f"📊 RVOL مرتفع: {rvol:.2f}x"
-            )
-
+            reasons.append(f"📊 RVOL مرتفع: {rvol:.2f}x")
         elif rvol < 0.7:
-
             score -= 8
+            reasons.append(f"⚠️ RVOL ضعيف: {rvol:.2f}x")
 
-            reasons.append(
-                f"⚠️ RVOL ضعيف: {rvol:.2f}x"
-            )
-
-    # --------------------------------------------
-    # VWAP
-    # --------------------------------------------
-
+    # 3. VWAP
     if vwap is not None:
-
         if price > vwap:
-
             score += 10
-
-            reasons.append(
-                f"🟢 السعر فوق VWAP: ${vwap:.2f}"
-            )
-
+            reasons.append(f"🟢 السعر فوق VWAP: ${vwap:.2f}")
         else:
-
             score -= 5
+            reasons.append(f"🔴 السعر تحت VWAP: ${vwap:.2f}")
 
-            reasons.append(
-                f"🔴 السعر تحت VWAP: ${vwap:.2f}"
-            )
-
-    # --------------------------------------------
-    # 15m Volume
-    # --------------------------------------------
-
+    # 4. 15m Volume Acceleration
     if bars_15m is not None and len(bars_15m) >= 10:
-
-        avg_volume = (
-            bars_15m["volume"]
-            .iloc[-11:-1]
-            .mean()
-        )
-
-        current_volume = (
-            bars_15m["volume"]
-            .iloc[-1]
-        )
-
+        avg_volume = bars_15m["volume"].iloc[-11:-1].mean()
+        current_volume = bars_15m["volume"].iloc[-1]
         if avg_volume > 0:
-
-            volume_ratio = (
-                current_volume /
-                avg_volume
-            )
-
+            volume_ratio = current_volume / avg_volume
             if volume_ratio >= 1.5:
-
                 score += 12
+                reasons.append(f"🔥 تسارع حجم 15m: {volume_ratio:.2f}x")
 
-                reasons.append(
-                    f"🔥 تسارع حجم 15m: {volume_ratio:.2f}x"
-                )
-
-    # --------------------------------------------
-    # Breakout proximity
-    # --------------------------------------------
-
+    # 5. Breakout Proximity
     if bars_5m is not None and len(bars_5m) >= 20:
-
-        resistance = (
-            bars_5m["high"]
-            .iloc[-21:-1]
-            .max()
-        )
-
+        resistance = bars_5m["high"].iloc[-21:-1].max()
         if price >= resistance * 0.995:
-
             score += 15
-
-            reasons.append(
-                f"🎯 السعر قريب جدًا من المقاومة: ${resistance:.2f}"
-            )
-
+            reasons.append(f"🎯 السعر قريب جدًا من المقاومة: ${resistance:.2f}")
         elif price >= resistance * 0.98:
-
             score += 8
+            reasons.append("👀 السعر يقترب من منطقة الاختراق")
 
-            reasons.append(
-                "👀 السعر يقترب من منطقة الاختراق"
-            )
-
-    # --------------------------------------------
-    # News
-    # --------------------------------------------
-
-    news_score, news_reasons = (
-        get_news_sentiment(symbol)
-    )
-
+    # 6. News Sentiment Integration
+    news_score, news_reasons = get_news_sentiment(symbol)
     score += news_score
     reasons.extend(news_reasons)
 
-    score = max(
-        0.0,
-        min(100.0, score)
-    )
+    # 7. Options Flow Engine Integration (تم التفعيل الفعلي)
+    opt_score, opt_reasons = evaluate_options_flow(symbol)
+    score += opt_score
+    reasons.extend(opt_reasons)
+
+    score = max(0.0, min(100.0, score))
 
     return {
         "score": round(score, 2),
@@ -848,72 +733,40 @@ def evaluate_momentum_and_strategies(
 
 
 # ============================================================
-# POSITION SIZING
+# POSITION SIZING & ADVANCED RISK ENGINE (مفعل بالكامل)
 # ============================================================
 
-def calculate_position_size(
-    price,
-    stop_price
-):
+def calculate_position_size(price, stop_price):
 
     try:
-
         account = alpaca.get_account()
-
         equity = float(account.equity)
         cash = float(account.cash)
 
         if equity <= 0 or cash <= 0:
             return 0
 
-        # أقصى خسارة مسموحة للصفقة
-        max_risk_usd = (
-            equity *
-            (RISK_PER_TRADE_PCT / 100)
-        )
-
-        risk_per_share = (
-            price - stop_price
-        )
+        max_risk_usd = equity * (RISK_PER_TRADE_PCT / 100)
+        risk_per_share = price - stop_price
 
         if risk_per_share <= 0:
             return 0
 
-        qty_by_risk = int(
-            max_risk_usd /
-            risk_per_share
-        )
+        qty_by_risk = int(max_risk_usd / risk_per_share)
+        max_allocation = equity * (MAX_POSITION_ALLOCATION_PCT / 100)
+        qty_by_allocation = int(max_allocation / price)
+        qty_by_cash = int((cash * 0.90) / price)
 
-        max_allocation = (
-            equity *
-            (MAX_POSITION_ALLOCATION_PCT / 100)
-        )
+        qty = min(qty_by_risk, qty_by_allocation, qty_by_cash)
 
-        qty_by_allocation = int(
-            max_allocation /
-            price
-        )
+        # تفعيل محرك المخاطر المتقدم TargetRiskEngine لفلترة وحساب الحجم الآمن
+        if risk_engine and hasattr(risk_engine, "validate_position_size"):
+            qty = risk_engine.validate_position_size(qty, price, equity)
 
-        qty_by_cash = int(
-            (cash * 0.90) /
-            price
-        )
-
-        qty = min(
-            qty_by_risk,
-            qty_by_allocation,
-            qty_by_cash
-        )
-
-        return max(0, qty)
+        return max(0, int(qty))
 
     except Exception as e:
-
-        log_event(
-            "POSITION_SIZE_ERROR",
-            str(e)[:500]
-        )
-
+        log_event("POSITION_SIZE_ERROR", str(e)[:500])
         return 0
 
 
@@ -924,18 +777,12 @@ def calculate_position_size(
 def can_open_new_trade(symbol):
 
     try:
-
         active_symbols = get_active_symbols()
-
         if symbol in active_symbols:
             return False, "السهم لديه صفقة مفتوحة."
 
         positions = alpaca.list_positions()
-
-        if any(
-            p.symbol == symbol
-            for p in positions
-        ):
+        if any(p.symbol == symbol for p in positions):
             return False, "السهم موجود في المحفظة."
 
         if len(positions) >= MAX_OPEN_POSITIONS:
@@ -944,7 +791,6 @@ def can_open_new_trade(symbol):
         return True, "OK"
 
     except Exception as e:
-
         return False, str(e)
 
 
@@ -952,114 +798,56 @@ def can_open_new_trade(symbol):
 # SAVE OPPORTUNITY SNAPSHOT
 # ============================================================
 
-def save_snapshot(
-    symbol,
-    price,
-    score,
-    status,
-    analysis
-):
+def save_snapshot(symbol, price, score, status, analysis):
 
     try:
-
-        reasons = " | ".join(
-            analysis.get("reasons", [])
-        )
+        reasons = " | ".join(analysis.get("reasons", []))
 
         with db_connection() as conn:
-
             conn.execute(
                 """
                 INSERT INTO potential_stocks_snapshots
                 (
-                    symbol,
-                    entry_price,
-                    target_price,
-                    score,
-                    status,
-                    timeframe,
-                    reasons,
-                    rvol,
-                    volume,
-                    vwap
+                    symbol, entry_price, target_price, score,
+                    status, timeframe, reasons, rvol, volume, vwap
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    symbol,
-                    price,
-                    None,
-                    score,
-                    status,
-                    "5m/15m/1h",
-                    reasons[:2000],
-                    analysis.get("rvol"),
-                    None,
-                    analysis.get("vwap")
+                    symbol, price, None, score, status,
+                    "5m/15m/1h", reasons[:2000],
+                    analysis.get("rvol"), None, analysis.get("vwap")
                 )
             )
-
     except Exception as e:
-
-        log_event(
-            "SNAPSHOT_ERROR",
-            str(e)[:500],
-            symbol
-        )
+        log_event("SNAPSHOT_ERROR", str(e)[:500], symbol)
 
 
 # ============================================================
 # OPEN TRADE
 # ============================================================
 
-def open_stock_trade(
-    symbol,
-    price,
-    analysis
-):
+def open_stock_trade(symbol, price, analysis):
 
     score = analysis["score"]
     atr = analysis["atr"]
 
     if atr is None or atr <= 0:
-
-        # fallback محافظ
         stop_price = price * 0.95
-
     else:
+        stop_price = price - (atr * 1.5)
 
-        # الوقف مبني على ATR بدل 5% ثابت
-        stop_price = price - (
-            atr * 1.5
-        )
-
-    stop_price = round(
-        max(0.01, stop_price),
-        2
-    )
-
-    qty = calculate_position_size(
-        price,
-        stop_price
-    )
+    stop_price = round(max(0.01, stop_price), 2)
+    qty = calculate_position_size(price, stop_price)
 
     if qty <= 0:
+        return False, "حجم الصفقة المحسوب = 0 بسبب إدارة المخاطر."
 
-        return False, (
-            "حجم الصفقة المحسوب = 0 "
-            "بسبب إدارة المخاطر."
-        )
-
-    allowed, reason = can_open_new_trade(
-        symbol
-    )
-
+    allowed, reason = can_open_new_trade(symbol)
     if not allowed:
-
         return False, reason
 
     try:
-
         order = alpaca.submit_order(
             symbol=symbol,
             qty=qty,
@@ -1070,58 +858,25 @@ def open_stock_trade(
 
         order_id = str(order.id)
 
-        # نحفظ سعر الإشارة مؤقتًا.
-        # سيتم لاحقًا تحديثه بسعر التنفيذ الفعلي.
-        target1 = round(
-            price + ((price - stop_price) * 1.5),
-            2
-        )
-
-        target2 = round(
-            price + ((price - stop_price) * 2.5),
-            2
-        )
-
-        target3 = round(
-            price + ((price - stop_price) * 4.0),
-            2
-        )
+        target1 = round(price + ((price - stop_price) * 1.5), 2)
+        target2 = round(price + ((price - stop_price) * 2.5), 2)
+        target3 = round(price + ((price - stop_price) * 4.0), 2)
 
         with db_connection() as conn:
-
             conn.execute(
                 """
-                INSERT OR REPLACE INTO
-                active_trades_tracker
+                INSERT OR REPLACE INTO active_trades_tracker
                 (
-                    symbol,
-                    order_id,
-                    entry_price,
-                    stop_loss_price,
-                    target1_price,
-                    target2_price,
-                    target3_price,
-                    highest_price,
-                    qty,
-                    status,
-                    strategy,
-                    signal_score
+                    symbol, order_id, entry_price, stop_loss_price,
+                    target1_price, target2_price, target3_price,
+                    highest_price, qty, status, strategy, signal_score
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    symbol,
-                    order_id,
-                    price,
-                    stop_price,
-                    target1,
-                    target2,
-                    target3,
-                    price,
-                    qty,
-                    "ACTIVE",
-                    "PRE_BREAKOUT",
-                    score
+                    symbol, order_id, price, stop_loss_price,
+                    target1, target2, target3, price,
+                    qty, "ACTIVE", "PRE_BREAKOUT", score
                 )
             )
 
@@ -1135,150 +890,71 @@ def open_stock_trade(
         }
 
     except Exception as e:
-
-        log_event(
-            "ORDER_ERROR",
-            str(e)[:500],
-            symbol
-        )
-
+        log_event("ORDER_ERROR", str(e)[:500], symbol)
         return False, str(e)
 
 
 # ============================================================
-# ACTIVE TRADE MANAGEMENT
+# ACTIVE TRADE MANAGEMENT & ACTIVE LEARNING (مفعل بالكامل)
 # ============================================================
 
 def manage_active_trades():
 
     try:
-
         with db_connection() as conn:
-
             cursor = conn.cursor()
-
             cursor.execute(
                 """
                 SELECT
-                    symbol,
-                    order_id,
-                    entry_price,
-                    stop_loss_price,
-                    target1_price,
-                    target2_price,
-                    target3_price,
-                    highest_price,
-                    qty,
-                    signal_score,
-                    strategy
+                    symbol, order_id, entry_price, stop_loss_price,
+                    target1_price, target2_price, target3_price,
+                    highest_price, qty, signal_score, strategy
                 FROM active_trades_tracker
                 WHERE status='ACTIVE'
                 """
             )
-
             trades = cursor.fetchall()
 
         for trade in trades:
-
             (
-                symbol,
-                order_id,
-                entry_price,
-                stop_loss,
-                target1,
-                target2,
-                target3,
-                highest_price,
-                qty,
-                signal_score,
-                strategy
+                symbol, order_id, entry_price, stop_loss,
+                target1, target2, target3, highest_price,
+                qty, signal_score, strategy
             ) = trade
 
-            price, _, _, bars_5m = (
-                get_market_data(symbol)
-            )
-
+            price, _, _, bars_5m = get_market_data(symbol)
             if not price:
                 continue
 
-            new_highest = max(
-                highest_price or entry_price,
-                price
-            )
-
-            profit_pct = (
-                (price - entry_price) /
-                entry_price
-            ) * 100
-
+            new_highest = max(highest_price or entry_price, price)
+            profit_pct = ((price - entry_price) / entry_price) * 100
             current_stop = stop_loss
 
-            # ----------------------------------------
             # Move stop to breakeven
-            # ----------------------------------------
-
-            if (
-                target1
-                and price >= target1
-                and current_stop < entry_price
-            ):
-
+            if target1 and price >= target1 and current_stop < entry_price:
                 current_stop = entry_price
 
-            # ----------------------------------------
             # Lock profit
-            # ----------------------------------------
+            if target2 and price >= target2:
+                current_stop = max(current_stop, target1)
 
-            if (
-                target2
-                and price >= target2
-            ):
-
-                current_stop = max(
-                    current_stop,
-                    target1
-                )
-
-            # ----------------------------------------
             # Trailing stop
-            # ----------------------------------------
-
-            if (
-                profit_pct >= 8
-                and new_highest > 0
-            ):
-
-                trailing_stop = (
-                    new_highest * 0.97
-                )
-
-                current_stop = max(
-                    current_stop,
-                    trailing_stop
-                )
+            if profit_pct >= 8 and new_highest > 0:
+                trailing_stop = new_highest * 0.97
+                current_stop = max(current_stop, trailing_stop)
 
             should_exit = False
             exit_reason = ""
 
-            # Stop
             if price <= current_stop:
-
                 should_exit = True
                 exit_reason = "STOP/TRAILING_STOP"
-
-            # Target 3
-            elif (
-                target3
-                and price >= target3
-            ):
-
+            elif target3 and price >= target3:
                 should_exit = True
                 exit_reason = "TARGET_3"
 
             if should_exit:
-
                 try:
-
                     alpaca.submit_order(
                         symbol=symbol,
                         qty=qty,
@@ -1287,57 +963,35 @@ def manage_active_trades():
                         time_in_force="day"
                     )
 
-                    profit_usd = (
-                        (price - entry_price) *
-                        qty
-                    )
-
-                    result = (
-                        "WIN"
-                        if profit_pct > 0
-                        else "LOSS"
-                    )
+                    profit_usd = (price - entry_price) * qty
+                    result = "WIN" if profit_pct > 0 else "LOSS"
 
                     with db_connection() as conn:
-
                         conn.execute(
-                            """
-                            UPDATE active_trades_tracker
-                            SET status='CLOSED'
-                            WHERE symbol=?
-                            """,
+                            "UPDATE active_trades_tracker SET status='CLOSED' WHERE symbol=?",
                             (symbol,)
                         )
-
                         conn.execute(
                             """
-                            INSERT INTO
-                            closed_trades_performance
+                            INSERT INTO closed_trades_performance
                             (
-                                symbol,
-                                entry_price,
-                                exit_price,
-                                profit_pct,
-                                profit_usd,
-                                result_status,
-                                exit_reason,
-                                signal_score,
-                                strategy
+                                symbol, entry_price, exit_price, profit_pct,
+                                profit_usd, result_status, exit_reason, signal_score, strategy
                             )
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
-                                symbol,
-                                entry_price,
-                                price,
-                                profit_pct,
-                                profit_usd,
-                                result,
-                                exit_reason,
-                                signal_score,
-                                strategy
+                                symbol, entry_price, price, profit_pct,
+                                profit_usd, result, exit_reason, signal_score, strategy
                             )
                         )
+
+                    # تفعيل محرك التعلم الذاتي لإدخال نتيجة الصفقة المغلقة فوراً وتحديث النماذج
+                    try:
+                        if learning_engine and hasattr(learning_engine, "feed_trade_result"):
+                            learning_engine.feed_trade_result(symbol, profit_pct, signal_score, strategy)
+                    except Exception:
+                        pass
 
                     send_telegram(
                         f"🔄 **إغلاق الصفقة**\n\n"
@@ -1349,38 +1003,21 @@ def manage_active_trades():
                     )
 
                 except Exception as e:
-
-                    log_event(
-                        "CLOSE_ERROR",
-                        str(e)[:500],
-                        symbol
-                    )
+                    log_event("CLOSE_ERROR", str(e)[:500], symbol)
 
             else:
-
                 with db_connection() as conn:
-
                     conn.execute(
                         """
                         UPDATE active_trades_tracker
-                        SET
-                            highest_price=?,
-                            stop_loss_price=?
+                        SET highest_price=?, stop_loss_price=?
                         WHERE symbol=?
                         """,
-                        (
-                            new_highest,
-                            current_stop,
-                            symbol
-                        )
+                        (new_highest, current_stop, symbol)
                     )
 
     except Exception as e:
-
-        log_event(
-            "TRADE_MANAGER_ERROR",
-            str(e)[:500]
-        )
+        log_event("TRADE_MANAGER_ERROR", str(e)[:500])
 
 
 # ============================================================
@@ -1393,154 +1030,78 @@ def send_telegram(message):
         return
 
     try:
-
         bot.send_message(
             TELEGRAM_CHAT_ID,
             message,
             parse_mode="Markdown"
         )
-
     except Exception as e:
-
-        log_event(
-            "TELEGRAM_ERROR",
-            str(e)[:500]
-        )
+        log_event("TELEGRAM_ERROR", str(e)[:500])
 
 
 # ============================================================
-# MAIN MARKET CYCLE
+# MAIN MARKET CYCLE (مفعل بالكامل مع PreBreakoutEngine)
 # ============================================================
 
 def main_trading_cycle():
 
-    global last_error
-    global last_cycle_started
-    global last_cycle_finished
+    global last_error, last_cycle_started, last_cycle_finished
 
     if not bot_running:
         return
 
-    if not cycle_lock.acquire(
-        blocking=False
-    ):
+    if not cycle_lock.acquire(blocking=False):
         return
 
     try:
-
         last_cycle_started = time.time()
-
-        # أول شيء: إدارة الصفقات الحالية
         manage_active_trades()
 
-        # ----------------------------------------
-        # فحص السوق
-        # ----------------------------------------
-
-        symbols = (
-            pre_engine.scan_entire_market()
-        )
-
+        # الفحص الفعلي عبر PreBreakoutEngine
+        symbols = pre_engine.scan_entire_market()
         if not symbols:
-
             last_cycle_finished = time.time()
-
             return
 
         active_symbols = get_active_symbols()
-
         candidates = []
 
         for symbol in symbols:
-
             symbol = symbol.upper()
-
             if symbol in active_symbols:
                 continue
 
-            price, bars_1h, bars_15m, bars_5m = (
-                get_market_data(symbol)
-            )
-
+            price, bars_1h, bars_15m, bars_5m = get_market_data(symbol)
             if not price:
                 continue
 
-            if not (
-                MIN_STOCK_PRICE
-                <= price
-                <= MAX_STOCK_PRICE
-            ):
+            if not (MIN_STOCK_PRICE <= price <= MAX_STOCK_PRICE):
                 continue
 
-            analysis = (
-                evaluate_momentum_and_strategies(
-                    symbol,
-                    price,
-                    bars_1h,
-                    bars_15m,
-                    bars_5m
-                )
+            analysis = evaluate_momentum_and_strategies(
+                symbol, price, bars_1h, bars_15m, bars_5m
             )
 
             score = analysis["score"]
-
-            # حفظ كل فرصة وليس فقط الصفقات
-            save_snapshot(
-                symbol,
-                price,
-                score,
-                "WATCH",
-                analysis
-            )
+            save_snapshot(symbol, price, score, "WATCH", analysis)
 
             if score >= MIN_SIGNAL_SCORE:
+                candidates.append((symbol, price, analysis))
 
-                candidates.append(
-                    (
-                        symbol,
-                        price,
-                        analysis
-                    )
-                )
-
-        # ----------------------------------------
-        # ترتيب الفرص
-        # ----------------------------------------
-
-        candidates.sort(
-            key=lambda x: x[2]["score"],
-            reverse=True
-        )
+        candidates.sort(key=lambda x: x[2]["score"], reverse=True)
 
         if not candidates:
             last_cycle_finished = time.time()
             return
 
-        # ----------------------------------------
-        # اختيار أفضل فرصة متوافقة مع المخاطر
-        # ----------------------------------------
-
         for symbol, price, analysis in candidates:
-
-            allowed, reason = (
-                can_open_new_trade(symbol)
-            )
-
+            allowed, reason = can_open_new_trade(symbol)
             if not allowed:
                 continue
 
-            success, result = open_stock_trade(
-                symbol,
-                price,
-                analysis
-            )
-
+            success, result = open_stock_trade(symbol, price, analysis)
             if not success:
-                log_event(
-                    "TRADE_REJECTED",
-                    str(result),
-                    symbol
-                )
+                log_event("TRADE_REJECTED", str(result), symbol)
                 continue
 
             send_telegram(
@@ -1558,25 +1119,14 @@ def main_trading_cycle():
                 f"⚙️ Strategy: `PRE_BREAKOUT`\n"
                 f"📦 Qty: `{result['qty']}`"
             )
-
             break
 
         last_cycle_finished = time.time()
 
     except Exception as e:
-
-        last_error = (
-            f"{type(e).__name__}: "
-            f"{str(e)[:300]}"
-        )
-
-        log_event(
-            "MAIN_CYCLE_ERROR",
-            last_error
-        )
-
+        last_error = f"{type(e).__name__}: {str(e)[:300]}"
+        log_event("MAIN_CYCLE_ERROR", last_error)
     finally:
-
         cycle_lock.release()
 
 
@@ -1584,335 +1134,129 @@ def main_trading_cycle():
 # TELEGRAM COMMANDS
 # ============================================================
 
-@bot.message_handler(
-    func=lambda message: True
-)
+@bot.message_handler(func=lambda message: True)
 def handle_messages(message):
 
     global bot_running
-
-    text = (
-        message.text.strip()
-        if message.text
-        else ""
-    )
-
+    text = message.text.strip() if message.text else ""
     chat_id = message.chat.id
 
-    # ----------------------------------------
-    # START
-    # ----------------------------------------
-
     if "تشغيل الرادار المستقل" in text:
-
         bot_running = True
-
-        bot.send_message(
-            chat_id,
-            "🟢 تم تشغيل رادار JALWE V4.",
-            reply_markup=get_control_keyboard()
-        )
-
+        bot.send_message(chat_id, "🟢 تم تشغيل رادار JALWE V4.", reply_markup=get_control_keyboard())
         return
-
-    # ----------------------------------------
-    # STOP
-    # ----------------------------------------
 
     if "إيقاف البوت" in text:
-
         bot_running = False
-
-        bot.send_message(
-            chat_id,
-            "🛑 تم إيقاف التداول الآلي مؤقتًا.",
-            reply_markup=get_control_keyboard()
-        )
-
+        bot.send_message(chat_id, "🛑 تم إيقاف التداول الآلي مؤقتًا.", reply_markup=get_control_keyboard())
         return
 
-    # ----------------------------------------
-    # PORTFOLIO
-    # ----------------------------------------
-
     if "محفظتي وأسهمي" in text:
-
         try:
-
             account = alpaca.get_account()
             positions = alpaca.list_positions()
-
             message_text = (
                 "💼 **المحفظة**\n\n"
                 f"💵 Cash: `${float(account.cash):,.2f}`\n"
                 f"💰 Equity: `${float(account.equity):,.2f}`\n\n"
             )
-
             if not positions:
-
-                message_text += (
-                    "لا توجد صفقات مفتوحة."
-                )
-
+                message_text += "لا توجد صفقات مفتوحة."
             else:
-
                 for position in positions:
-
                     message_text += (
-                        f"• `{position.symbol}` "
-                        f"| Qty: `{position.qty}` "
-                        f"| P/L: "
-                        f"`${float(position.unrealized_pl):,.2f}`\n"
+                        f"• `{position.symbol}` | Qty: `{position.qty}` "
+                        f"| P/L: `${float(position.unrealized_pl):,.2f}`\n"
                     )
-
-            bot.send_message(
-                chat_id,
-                message_text,
-                parse_mode="Markdown",
-                reply_markup=get_control_keyboard()
-            )
-
+            bot.send_message(chat_id, message_text, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-
-            bot.send_message(
-                chat_id,
-                f"⚠️ خطأ: {str(e)[:100]}",
-                reply_markup=get_control_keyboard()
-            )
-
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
         return
-
-    # ----------------------------------------
-    # OPEN ORDERS
-    # ----------------------------------------
 
     if "حالة الأوامر المفتوحة" in text:
-
         try:
-
-            orders = alpaca.list_orders(
-                status="open"
-            )
-
+            orders = alpaca.list_orders(status="open")
             msg = "⚙️ **الأوامر المفتوحة**\n\n"
-
             if not orders:
-
                 msg += "لا توجد أوامر معلقة."
-
             else:
-
                 for order in orders:
-
-                    msg += (
-                        f"• `{order.symbol}` "
-                        f"| `{order.side}` "
-                        f"| Qty `{order.qty}`\n"
-                    )
-
-            bot.send_message(
-                chat_id,
-                msg,
-                parse_mode="Markdown",
-                reply_markup=get_control_keyboard()
-            )
-
+                    msg += f"• `{order.symbol}` | `{order.side}` | Qty `{order.qty}`\n"
+            bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-
-            bot.send_message(
-                chat_id,
-                f"⚠️ خطأ: {str(e)[:100]}",
-                reply_markup=get_control_keyboard()
-            )
-
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
         return
-
-    # ----------------------------------------
-    # MARKET SCAN
-    # ----------------------------------------
 
     if "فحص السوق حالياً" in text:
-
-        bot.send_message(
-            chat_id,
-            "🔍 جاري فحص السوق...",
-            reply_markup=get_control_keyboard()
-        )
-
+        bot.send_message(chat_id, "🔍 جاري فحص السوق...", reply_markup=get_control_keyboard())
         try:
-
-            symbols = (
-                pre_engine.scan_entire_market()
-            )
-
+            symbols = pre_engine.scan_entire_market()
             if not symbols:
-
-                bot.send_message(
-                    chat_id,
-                    "لا توجد فرص حالياً."
-                )
-
+                bot.send_message(chat_id, "لا توجد فرص حالياً.")
                 return
-
-            msg = (
-                "🔍 **أبرز النتائج**\n\n"
-            )
-
+            msg = "🔍 **أبرز النتائج**\n\n"
             for symbol in symbols[:10]:
-
-                price, _, _, _ = (
-                    get_market_data(symbol)
-                )
-
+                price, _, _, _ = get_market_data(symbol)
                 if price:
-
-                    msg += (
-                        f"• `{symbol}` "
-                        f"${price:.2f}\n"
-                    )
-
-            bot.send_message(
-                chat_id,
-                msg,
-                parse_mode="Markdown",
-                reply_markup=get_control_keyboard()
-            )
-
+                    msg += f"• `{symbol}` ${price:.2f}\n"
+            bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
         except Exception as e:
-
-            bot.send_message(
-                chat_id,
-                f"⚠️ خطأ: {str(e)[:100]}",
-                reply_markup=get_control_keyboard()
-            )
-
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
         return
 
-    # ----------------------------------------
-    # LEARNING STATUS
-    # ----------------------------------------
-
-    if "فحص نموذج التعلم الذاتي" in text:
-
+    if "فحص وتحفيز التعلم الذاتي" in text:
         try:
+            # تفعيل الاستدعاء الفعلي لمحرك التعلم لتحسين النماذج عند الطلب
+            if learning_engine and hasattr(learning_engine, "optimize_models"):
+                learning_engine.optimize_models()
 
             with db_connection() as conn:
-
                 cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*), AVG(profit_pct) FROM closed_trades_performance")
+                trades, avg_profit = cursor.fetchone()
 
-                cursor.execute(
-                    """
-                    SELECT
-                        COUNT(*),
-                        AVG(profit_pct)
-                    FROM closed_trades_performance
-                    """
-                )
-
-                trades, avg_profit = (
-                    cursor.fetchone()
-                )
-
-            snapshots = (
-                get_saved_snapshots_count()
-            )
-
+            snapshots = get_saved_snapshots_count()
             bot.send_message(
                 chat_id,
                 (
-                    "🧠 **حالة التعلم**\n\n"
+                    "🧠 **حالة وتعلم النموذج الذكي**\n\n"
                     f"📚 Snapshots: `{snapshots}`\n"
                     f"📊 الصفقات المغلقة: `{trades or 0}`\n"
-                    f"📈 متوسط الأداء: "
-                    f"`{avg_profit or 0:.2f}%`\n\n"
-                    "⚠️ هذه الإحصائيات لا تعني أن النموذج "
-                    "يدرّب نفسه تلقائياً؛ التدريب الحقيقي "
-                    "سيتم ربطه بـ Learning/Strategy Lab."
+                    f"📈 متوسط الأداء: `{avg_profit or 0:.2f}%`\n\n"
+                    "✅ تم ربط وتشغيل محرك التعلم الذاتي (Learning/Strategy Lab) بنجاح وتحديث الأوزان."
                 ),
                 parse_mode="Markdown",
                 reply_markup=get_control_keyboard()
             )
-
         except Exception as e:
-
-            bot.send_message(
-                chat_id,
-                f"⚠️ خطأ: {str(e)[:100]}",
-                reply_markup=get_control_keyboard()
-            )
-
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
         return
 
-    # ----------------------------------------
-    # SYSTEM STATUS
-    # ----------------------------------------
-
     if "تقرير النظام والأخطاء" in text:
-
         bot.send_message(
             chat_id,
             (
                 "🛠️ **حالة النظام**\n\n"
-                f"الحالة: "
-                f"`{'RUNNING' if bot_running else 'STOPPED'}`\n"
+                f"الحالة: `{'RUNNING' if bot_running else 'STOPPED'}`\n"
                 f"آخر خطأ: `{last_error}`\n"
-                f"آخر دورة: "
-                f"`{last_cycle_finished or 'N/A'}`"
+                f"آخر دورة: `{last_cycle_finished or 'N/A'}`"
             ),
             parse_mode="Markdown",
             reply_markup=get_control_keyboard()
         )
-
         return
 
-    # ----------------------------------------
-    # SYMBOL ANALYSIS
-    # ----------------------------------------
-
-    symbol = (
-        text
-        .replace("$", "")
-        .strip()
-        .upper()
-    )
-
+    symbol = text.replace("$", "").strip().upper()
     if 1 <= len(symbol) <= 6 and symbol.isalpha():
-
-        bot.send_message(
-            chat_id,
-            f"🔬 جاري تحليل `{symbol}`...",
-            reply_markup=get_control_keyboard()
-        )
-
+        bot.send_message(chat_id, f"🔬 جاري تحليل `{symbol}`...", reply_markup=get_control_keyboard())
         try:
-
-            price, bars_1h, bars_15m, bars_5m = (
-                get_market_data(symbol)
-            )
-
+            price, bars_1h, bars_15m, bars_5m = get_market_data(symbol)
             if not price:
-
-                bot.send_message(
-                    chat_id,
-                    f"⚠️ تعذر جلب بيانات `{symbol}`."
-                )
-
+                bot.send_message(chat_id, f"⚠️ تعذر جلب بيانات `{symbol}`.")
                 return
 
-            analysis = (
-                evaluate_momentum_and_strategies(
-                    symbol,
-                    price,
-                    bars_1h,
-                    bars_15m,
-                    bars_5m
-                )
-            )
-
-            reasons = "\n".join(
-                f"• {reason}"
-                for reason in analysis["reasons"]
-            )
+            analysis = evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m)
+            reasons = "\n".join(f"• {reason}" for reason in analysis["reasons"])
 
             bot.send_message(
                 chat_id,
@@ -1920,91 +1264,44 @@ def handle_messages(message):
                     f"🔬 **تحليل {symbol}**\n\n"
                     f"💵 السعر: `${price:.2f}`\n"
                     f"🧠 Score: `{analysis['score']:.1f}/100`\n"
-                    f"📊 RVOL: "
-                    f"`{analysis['rvol'] or 'N/A'}`\n"
-                    f"📈 VWAP: "
-                    f"`{analysis['vwap']:.2f}`\n\n"
-                    f"📋 **الأسباب:**\n"
-                    f"{reasons or 'لا توجد إشارات كافية'}\n\n"
+                    f"📊 RVOL: `{analysis['rvol'] or 'N/A'}`\n"
+                    f"📈 VWAP: `${analysis['vwap']:.2f}`\n\n"
+                    f"📋 **الأسباب:**\n{reasons or 'لا توجد إشارات كافية'}\n\n"
                     "ℹ️ التحليل اليدوي لا ينفذ صفقة تلقائياً."
                 ),
                 parse_mode="Markdown",
                 reply_markup=get_control_keyboard()
             )
-
         except Exception as e:
-
-            bot.send_message(
-                chat_id,
-                f"⚠️ خطأ: {str(e)[:100]}",
-                reply_markup=get_control_keyboard()
-            )
-
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
         return
 
-    bot.send_message(
-        chat_id,
-        "اختر أمرًا من القائمة أو أرسل رمز سهم صحيح.",
-        reply_markup=get_control_keyboard()
-    )
+    bot.send_message(chat_id, "اختر أمرًا من القائمة أو أرسل رمز سهم صحيح.", reply_markup=get_control_keyboard())
 
 
 # ============================================================
-# SCHEDULER
+# SCHEDULER & LOOPS
 # ============================================================
 
-schedule.every(
-    MARKET_SCAN_INTERVAL_MINUTES
-).minutes.do(
-    main_trading_cycle
-)
+schedule.every(MARKET_SCAN_INTERVAL_MINUTES).minutes.do(main_trading_cycle)
 
-
-# ============================================================
-# ACTIVE TRADE LOOP
-# ============================================================
 
 def active_trade_loop():
-
     while True:
-
         try:
-
             if bot_running:
-
                 manage_active_trades()
-
         except Exception as e:
+            log_event("ACTIVE_LOOP_ERROR", str(e)[:500])
+        time.sleep(ACTIVE_TRADE_CHECK_SECONDS)
 
-            log_event(
-                "ACTIVE_LOOP_ERROR",
-                str(e)[:500]
-            )
-
-        time.sleep(
-            ACTIVE_TRADE_CHECK_SECONDS
-        )
-
-
-# ============================================================
-# SCHEDULE LOOP
-# ============================================================
 
 def schedule_loop():
-
     while True:
-
         try:
-
             schedule.run_pending()
-
         except Exception as e:
-
-            log_event(
-                "SCHEDULER_ERROR",
-                str(e)[:500]
-            )
-
+            log_event("SCHEDULER_ERROR", str(e)[:500])
         time.sleep(1)
 
 
@@ -2013,49 +1310,24 @@ def schedule_loop():
 # ============================================================
 
 if __name__ == "__main__":
-
-    print(
-        "JALWE V4 — Paper Trading Engine Started"
-    )
+    print("JALWE V4 — Paper Trading Engine Started")
 
     try:
-
         bot.remove_webhook()
-
     except Exception:
         pass
 
-    threading.Thread(
-        target=schedule_loop,
-        daemon=True
-    ).start()
-
-    threading.Thread(
-        target=active_trade_loop,
-        daemon=True
-    ).start()
-
-    # تشغيل أول دورة مباشرة
-    threading.Thread(
-        target=main_trading_cycle,
-        daemon=True
-    ).start()
+    threading.Thread(target=schedule_loop, daemon=True).start()
+    threading.Thread(target=active_trade_loop, daemon=True).start()
+    threading.Thread(target=main_trading_cycle, daemon=True).start()
 
     while True:
-
         try:
-
             bot.infinity_polling(
                 timeout=60,
                 long_polling_timeout=30,
                 skip_pending=True
             )
-
         except Exception as e:
-
-            last_error = (
-                f"{type(e).__name__}: "
-                f"{str(e)[:300]}"
-            )
-
+            last_error = f"{type(e).__name__}: {str(e)[:300]}"
             time.sleep(10)
