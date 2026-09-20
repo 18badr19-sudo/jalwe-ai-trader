@@ -1,6 +1,8 @@
 import sqlite3
 import json
 from datetime import datetime
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 
 class ChartAndLearningEngine:
     def __init__(self, db_path="jalwe_learning.db"):
@@ -25,6 +27,8 @@ class ChartAndLearningEngine:
         conn.close()
 
     def save_feature_snapshot(self, symbol, state_data):
+        """حفظ لقطة الميزات وقت اتخاذ القرار"""
+        snapshot_id = None
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -40,11 +44,31 @@ class ChartAndLearningEngine:
                 -1
             ))
             conn.commit()
+            snapshot_id = cursor.lastrowid
             conn.close()
         except Exception as e:
             print(f"DB Error saving snapshot: {e}")
+        return snapshot_id
+
+    def update_trade_outcome(self, symbol, outcome_value):
+        """تحديث نتيجة أحدث صفقة لنفس الرمز (1 للربح، 0 للخسارة) لتعلم الذكاء الاصطناعي"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # البحث عن آخر لقطة مفتوحة لهذا الرمز وتحديثها
+            cursor.execute('''
+                UPDATE feature_snapshots 
+                SET outcome = ? 
+                WHERE symbol = ? AND outcome = -1 
+                ORDER BY id DESC LIMIT 1
+            ''', (outcome_value, symbol))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"DB Error updating outcome: {e}")
 
     def fetch_training_data(self):
+        """جلب البيانات التي تم حسم نتيجتها فقط لتدريب النموذج"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -73,9 +97,9 @@ class ChartAndLearningEngine:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM feature_snapshots')
-            count = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM feature_snapshots WHERE outcome != -1')
+            trained_count = cursor.fetchone()[0]
             conn.close()
-            return f"Stored snapshots for self-learning: {count} cases."
+            return f"Active AI Learning Cases: {trained_count} resolved trades."
         except Exception as e:
-            return "Database is active and operational."
+            return "Database is active."
