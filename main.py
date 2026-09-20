@@ -70,7 +70,7 @@ options_engine = OptionsFlowEngine(alpaca)
 trade_manager = ActiveTradeManager(alpaca)
 
 bot_running = True
-last_error = "النظام الذكي الشامل (محركات كاملة + شمعات متعددة الأطر) يعمل بكفاءة 🚀"
+last_error = "النظام الذكي الشامل (محركات كاملة + شمعات متعددة الأطر + تعلم ذاتي حي) يعمل بكفاءة 🚀"
 
 def get_control_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -213,7 +213,7 @@ def handle_messages(message):
 
     if "تشغيل الرادار المستقل" in text or "تشغيل البوت المتعلم" in text:
         bot_running = True
-        bot.send_message(chat_id, "🟢 **تم تفعيل رادار تحدي التدوير الشامل (بالمحركات والشمعات).**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "🟢 **تم تفعيل رادار تحدي التدوير الشامل مع التعلم الذاتي الحي.**", reply_markup=get_control_keyboard())
         return
 
     elif "إيقاف البوت" in text:
@@ -274,7 +274,7 @@ def handle_messages(message):
         return
 
     elif "🔍 فحص السوق حالياً" in text:
-        bot.send_message(chat_id, "⏳ **جاري فحص السوق وتطبيق معايير تحدي التدوير...**", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, "⏳ **جاري فحص السوق وتطبيق معايير تحدي التدوير والتعلم الذاتي...**", reply_markup=get_control_keyboard())
         try:
             symbols = pre_engine.scan_entire_market()
             if not symbols:
@@ -303,7 +303,7 @@ def handle_messages(message):
         except Exception:
             closed_count, avg_win = 0, 0.0
 
-        bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي والتدوير:**\n- الحالات المسجلة: `{total}`\n- الصفقات المغلقة: `{closed_count}`\n- متوسط أداء التعلم: `{avg_win:.2f}%`\n- المحركات النشطة: `PreBreakout, TargetRisk, OptionsFlow, ChartLearning.`", reply_markup=get_control_keyboard())
+        bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي والتغذية العكسية:**\n- لقطات الميزات المسجلة: `{total}`\n- الصفقات المغلقة والمكتسبة: `{closed_count}`\n- متوسط أداء الذاكرة: `{avg_win:.2f}%`\n- الحالة: `الذكاء الاصطناعي يتعلم ذاتياً من كل صفقة مغلقة 🔄`", reply_markup=get_control_keyboard())
         return
 
     elif "تقرير النظام والأخطاء" in text:
@@ -407,19 +407,26 @@ def manage_active_trades_and_trailing():
                 try:
                     alpaca.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='gtc')
                     
+                    result_status = "WIN" if profit_pct > 0 else "LOSS"
+                    outcome_val = 1 if profit_pct > 0 else 0
+
                     conn = sqlite3.connect("jalwe_learning.db")
                     cursor = conn.cursor()
                     cursor.execute("UPDATE active_trades_tracker SET status='CLOSED' WHERE symbol=?", (symbol,))
                     cursor.execute("""
                         INSERT INTO closed_trades_performance (symbol, entry_price, exit_price, profit_pct, result_status)
                         VALUES (?, ?, ?, ?, ?)
-                    """, (symbol, entry_price, curr_price, profit_pct, "WIN" if profit_pct > 0 else "LOSS"))
+                    """, (symbol, entry_price, curr_price, profit_pct, result_status))
                     conn.commit()
                     conn.close()
 
+                    # تفعيل حلقة التغذية العكسية للذكاء الاصطناعي
+                    learning_engine.update_trade_outcome(symbol=symbol, outcome_value=outcome_val)
+                    pre_engine.update_model_with_real_data()
+
                     status_msg = "🎯 أرباح مضمونة ومحمية" if profit_pct > 0 else "🛑 وقف الخسارة"
                     if TELEGRAM_CHAT_ID:
-                        bot.send_message(TELEGRAM_CHAT_ID, f"🔄🚨 **إغلاق صفقة ({status_msg})!**\n- الرمز: `{symbol}`\n- النتيجة: `{profit_pct:.2f}%`", parse_mode="Markdown")
+                        bot.send_message(TELEGRAM_CHAT_ID, f"🔄🚨 **إغلاق صفقة وتعلم الذكاء الاصطناعي ({status_msg})!**\n- الرمز: `{symbol}`\n- النتيجة: `{profit_pct:.2f}%`", parse_mode="Markdown")
                 except Exception:
                     pass
             
@@ -437,8 +444,12 @@ def manage_active_trades_and_trailing():
                     conn.commit()
                     conn.close()
 
+                    # تفعيل التعلم الذاتي للربح المتحقق
+                    learning_engine.update_trade_outcome(symbol=symbol, outcome_value=1)
+                    pre_engine.update_model_with_real_data()
+
                     if TELEGRAM_CHAT_ID:
-                        bot.send_message(TELEGRAM_CHAT_ID, f"🎯💰 **تعصير السهم وجني الأقصى بنجاح!**\n- الرمز: `{symbol}`\n- أرباح: `+{profit_pct:.2f}%`", parse_mode="Markdown")
+                        bot.send_message(TELEGRAM_CHAT_ID, f"🎯💰 **تعصير السهم وجني الأقصى وتعلم الذكاء الاصطناعي بنجاح!**\n- الرمز: `{symbol}`\n- أرباح: `+{profit_pct:.2f}%`", parse_mode="Markdown")
                 except Exception:
                     pass
             else:
@@ -468,7 +479,7 @@ def send_weekly_performance_report():
             f"• إجمالي الصفقات: `{total_trades}`\n"
             f"• نسبة النجاح: `{win_rate:.1f}%`\n"
             f"• متوسط العائد: `{avg_profit:.2f}%`\n\n"
-            f"🧠 *الذكاء الاصطناعي قام بتحديث أوزان الذاكرة والمحركات.*"
+            f"🧠 *الذكاء الاصطناعي قام بتحديث أوزان الذاكرة والمحركات تلقائياً بناءً على نتائج الأسبوع.*"
         )
         if TELEGRAM_CHAT_ID:
             bot.send_message(TELEGRAM_CHAT_ID, report_msg, parse_mode="Markdown")
@@ -523,7 +534,7 @@ def main_trading_cycle():
                         conn.close()
                         
                         alert_msg = (
-                            f"🚀 تحدي التدوير — **تنفيذ آلي بالمحركات!**\n"
+                            f"🚀 تحدي التدوير — **تنفيذ آلي بالمحركات والتعلم الذاتي!**\n"
                             f"📌 الرمز: `{sym}`\n"
                             f"💵 سعر الشراء: `${price}`\n"
                             f"📊 التقييم الشامل: `{score}%`\n"
@@ -541,7 +552,7 @@ schedule.every(15).minutes.do(main_trading_cycle)
 schedule.every().friday.at("21:00").do(send_weekly_performance_report)
 
 if __name__ == "__main__":
-    print("INFO - JALWE V4 AI Engine (All Modules & Multi-TF Candles) is running...")
+    print("INFO - JALWE V4 AI Engine (Full Self-Learning & Multi-TF Candles) is running...")
     try:
         bot.remove_webhook()
         time.sleep(2)
