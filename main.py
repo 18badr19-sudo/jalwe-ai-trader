@@ -63,7 +63,6 @@ def init_db():
 
 init_db()
 
-# تهيئة المحركات كاملة بدون أي نقص
 learning_engine = ChartAndLearningEngine()
 pre_engine = PreBreakoutEngine(alpaca, learning_engine)
 risk_engine = TargetRiskEngine(alpaca)
@@ -82,7 +81,8 @@ def get_control_keyboard():
         KeyboardButton("💼 محفظتي وأسهمي"),
         KeyboardButton("📊 أداء محفظتي والربح"),
         KeyboardButton("⚙️ حالة الأوامر المفتوحة"),
-        KeyboardButton("🔍 فحص نموذج التعلم الذاتي"),
+        KeyboardButton("🔍 فحص السوق حالياً"),
+        KeyboardButton("🧠 فحص نموذج التعلم الذاتي"),
         KeyboardButton("⚠️ تقرير النظام والأخطاء")
     )
     return markup
@@ -98,7 +98,6 @@ def get_saved_snapshots_count():
     except Exception:
         return 0
 
-# جلب بيانات الشمعات وتحويلها محلياً لـ 3 فريمات (ساعة، 15د، 5د) لمنع التعليق
 def get_market_data(symbol):
     price = None
     bars_1h = None
@@ -158,7 +157,6 @@ def evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m):
     score = 40 
     reasons = []
 
-    # 1. ذاكرة التعلم واستخدام المحركات
     try:
         conn = sqlite3.connect("jalwe_learning.db")
         cursor = conn.cursor()
@@ -175,7 +173,6 @@ def evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m):
     except Exception:
         pass
 
-    # 2. فريم الساعة (الاتجاه العام)
     if bars_1h is not None and len(bars_1h) >= 5:
         ma_5_1h = bars_1h['close'].rolling(window=5).mean().iloc[-1]
         if price > ma_5_1h:
@@ -185,7 +182,6 @@ def evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m):
             score -= 10
             reasons.append("📉 الاتجاه العام (ساعة): سلبي أو ضعيف")
 
-    # 3. فريم 15 دقيقة (السيولة والزخم)
     if bars_15m is not None and len(bars_15m) >= 5:
         vol_mean = bars_15m['volume'].mean() if 'volume' in bars_15m.columns else 1000
         last_vol = bars_15m['volume'].iloc[-1] if 'volume' in bars_15m.columns else 1000
@@ -193,7 +189,6 @@ def evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m):
             score += 15
             reasons.append("🔥 انفجار سيولة (15 دقيقة): أحجام قوية تدخل الآن")
 
-    # 4. فريم 5 دقائق (نقطة الدخول اللحظية Sniper Entry)
     if bars_5m is not None and len(bars_5m) >= 5:
         recent_high_5m = bars_5m['high'].iloc[:-1].max()
         if price >= recent_high_5m * 0.99:
@@ -203,7 +198,6 @@ def evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m):
             score -= 5
             reasons.append("⏳ انتظار (5 دقائق): السعر يحتاج تأكيد الاختراق")
 
-    # 5. تحليل الأخبار
     news_score, news_reasons = get_news_sentiment(symbol)
     score += news_score
     reasons.extend(news_reasons)
@@ -221,13 +215,16 @@ def handle_messages(message):
         bot_running = True
         bot.send_message(chat_id, "🟢 **تم تفعيل رادار تحدي التدوير الشامل (بالمحركات والشمعات).**", reply_markup=get_control_keyboard())
         return
+
     elif "إيقاف البوت" in text:
         bot_running = False
         bot.send_message(chat_id, "🛑 **تم إيقاف النظام مؤقتاً.**", reply_markup=get_control_keyboard())
         return
+
     elif "🎯 إضافة سهم للمتابعة" in text:
         bot.send_message(chat_id, "🎯 **وضع التحليل جاهز!** أرسل رمز السهم (مثال: `AAPL`).", reply_markup=get_control_keyboard())
         return
+
     elif "💼 محفظتي وأسهمي" in text:
         bot.send_message(chat_id, "⏳ جاري جلب تفاصيل محفظتك الحالية...", reply_markup=get_control_keyboard())
         try:
@@ -248,6 +245,7 @@ def handle_messages(message):
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
+
     elif "📊 أداء محفظتي والربح" in text:
         try:
             account = alpaca.get_account()
@@ -260,6 +258,7 @@ def handle_messages(message):
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
+
     elif "⚙️ حالة الأوامر المفتوحة" in text:
         try:
             orders = alpaca.list_orders(status='open')
@@ -273,6 +272,24 @@ def handle_messages(message):
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:40]}", reply_markup=get_control_keyboard())
         return
+
+    elif "🔍 فحص السوق حالياً" in text:
+        bot.send_message(chat_id, "⏳ **جاري فحص السوق وتطبيق معايير تحدي التدوير...**", reply_markup=get_control_keyboard())
+        try:
+            symbols = pre_engine.scan_entire_market()
+            if not symbols:
+                bot.send_message(chat_id, "⚠️ لم يتم العثور على فرص مطابقة حالياً.", reply_markup=get_control_keyboard())
+                return
+            
+            scanned_msg = "🔍 **نتائج الفحص اليدوي للسوق:**\n"
+            for sym in symbols[:5]:
+                price, _, _, _ = get_market_data(sym)
+                scanned_msg += f"• `{sym}` | السعر: `${price if price else 'N/A'}`\n"
+            bot.send_message(chat_id, scanned_msg, parse_mode="Markdown", reply_markup=get_control_keyboard())
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ خطأ أثناء الفحص: {str(e)[:40]}", reply_markup=get_control_keyboard())
+        return
+
     elif "فحص نموذج التعلم الذاتي" in text:
         total = get_saved_snapshots_count()
         try:
@@ -288,11 +305,11 @@ def handle_messages(message):
 
         bot.send_message(chat_id, f"🧠 **محرك التعلم الذاتي والتدوير:**\n- الحالات المسجلة: `{total}`\n- الصفقات المغلقة: `{closed_count}`\n- متوسط أداء التعلم: `{avg_win:.2f}%`\n- المحركات النشطة: `PreBreakout, TargetRisk, OptionsFlow, ChartLearning.`", reply_markup=get_control_keyboard())
         return
+
     elif "تقرير النظام والأخطاء" in text:
         bot.send_message(chat_id, f"🛠️ **التشخيص:**\n{last_error}\nالوضع: `تشغيل ذاتي بالذكاء الاصطناعي 24/7`", reply_markup=get_control_keyboard())
         return
 
-    # تحليل سهم يدوي
     symbol_to_check = text.replace("$", "").strip().upper()
     if len(symbol_to_check) > 0 and len(symbol_to_check) <= 6:
         bot.send_message(chat_id, f"🤖 فحص الشمعات والمحركات للسهم `{symbol_to_check}`...", reply_markup=get_control_keyboard())
@@ -465,7 +482,6 @@ def main_trading_cycle():
     try:
         manage_active_trades_and_trailing()
 
-        # استدعاء محرك البحث عن الفرص الأصلي المربوط بـ pre_engine
         symbols = pre_engine.scan_entire_market()
         if not symbols:
             return
