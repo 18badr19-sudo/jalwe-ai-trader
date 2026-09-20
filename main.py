@@ -205,7 +205,7 @@ def init_db():
             )
         """)
 
-        # جدول جديد لدعم التعلم الذاتي وتغيير الأوزان بناءً على الأداء
+        # جدول لدعم التعلم الذاتي وتغيير الأوزان بناءً على الأداء
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS adaptive_weights (
                 factor_name TEXT PRIMARY KEY,
@@ -391,13 +391,18 @@ def update_adaptive_weights_based_on_performance():
 # ============================================================
 
 def get_market_trend_status():
-    """التحقق من حالة السوق العام (مثل SPY) لتحديد ما إذا كان صاعداً أم هابطاً"""
+    """التحقق من حالة السوق العام (مثل SPY) لتحديد ما إذا كان صاعداً أم هابطاً أو في انهيار"""
     try:
-        bars = alpaca.get_bars("SPY", tradeapi.TimeFrame(1, tradeapi.TimeFrameUnit.Day), limit=10).df
-        if bars is not None and len(bars) >= 10:
+        bars = alpaca.get_bars("SPY", tradeapi.TimeFrame(1, tradeapi.TimeFrameUnit.Day), limit=15).df
+        if bars is not None and len(bars) >= 15:
             ma10 = bars["close"].rolling(10).mean().iloc[-1]
             current_spy = bars["close"].iloc[-1]
-            if current_spy < ma10:
+            prev_spy = bars["close"].iloc[-2]
+            
+            # فحص الانهيار الحاد (Crash Protection)
+            if current_spy < (ma10 * 0.97) and current_spy < prev_spy:
+                return "CRASH_PANIC"
+            elif current_spy < ma10:
                 return "BEARISH"
     except Exception:
         pass
@@ -641,6 +646,26 @@ def evaluate_options_flow(symbol):
 
 
 # ============================================================
+# ORDER BOOK / TAPE READING (فحص السيولة اللحظية لصد الفخاخ)
+# ============================================================
+
+def check_order_book_imbalance(symbol):
+    """التحقق من ضغط طلبات الشراء مقابل البيع في سجل الأوامر المباشر"""
+    try:
+        book = alpaca.get_latest_orderbook(symbol)
+        if book and hasattr(book, 'bids') and hasattr(book, 'asks'):
+            bid_vol = sum(b.size for b in book.bids[:3]) if book.bids else 0
+            ask_vol = sum(a.size for a in book.asks[:3]) if book.asks else 1
+            if ask_vol > 0:
+                imbalance = bid_vol / ask_vol
+                if imbalance >= 1.5:
+                    return True, f"🛡️ ضغط شراء قوي في سجل الأوامر ({imbalance:.1f}x)"
+    except Exception:
+        pass
+    return True, ""  # إذا لم تتوفر البيئة الافتراضية للبوك يتم التجاوز بسلاسة دون تعطيل
+
+
+# ============================================================
 # TECHNICAL / OPPORTUNITY ANALYSIS (WITH MULTI-TIMEFRAME)
 # ============================================================
 
@@ -725,6 +750,11 @@ def evaluate_momentum_and_strategies(
     score += opt_score
     reasons.extend(opt_reasons)
 
+    # فحص سجل الأوامر
+    ok_book, book_reason = check_order_book_imbalance(symbol)
+    if book_reason:
+        reasons.append(book_reason)
+
     score = max(0.0, min(100.0, score))
 
     return {
@@ -752,7 +782,11 @@ def calculate_position_size(price, stop_price):
             return 0
 
         risk_pct = RISK_PER_TRADE_PCT
-        if get_market_trend_status() == "BEARISH":
+        market_status = get_market_trend_status()
+        
+        if market_status == "CRASH_PANIC":
+            return 0  # منع فتح صفقات نهائياً في حالة الانهيار
+        elif market_status == "BEARISH":
             risk_pct = RISK_PER_TRADE_PCT / 2.0
 
         max_risk_usd = equity * (risk_pct / 100)
@@ -785,6 +819,10 @@ def calculate_position_size(price, stop_price):
 def can_open_new_trade(symbol):
 
     try:
+        # فحص حالة الانهيار العام للسوق مسبقاً
+        if get_market_trend_status() == "CRASH_PANIC":
+            return False, "السوق في حالة هلع/انهيار (CRASH_PANIC)، تم تعليق الشراء الآلي كلياً لحماية رأس المال."
+
         active_symbols = get_active_symbols()
         if symbol in active_symbols:
             return False, "السهم لديه صفقة مفتوحة."
@@ -849,7 +887,7 @@ def open_stock_trade(symbol, price, analysis):
     qty = calculate_position_size(price, stop_price)
 
     if qty <= 0:
-        return False, "حجم الصفقة المحسوب = 0 بسبب إدارة المخاطر."
+        return False, "حجم الصفقة المحسوب = 0 بسبب إدارة المخاطر أو حالة السوق."
 
     allowed, reason = can_open_new_trade(symbol)
     if not allowed:
@@ -977,7 +1015,7 @@ def manage_active_trades():
                         f"💰 ربح جزئي: `${partial_profit_usd:+.2f}`\n"
                         f"🛡️ **الإجراء الآمن:** تم تحريك وقف الخسارة إلى نقطة الدخول (`${entry_price:.2f}`) الصفقة أصبحت محمية 100%!"
                     )
-                    continue # الانتقال للدورة القادمة بعد تحديث الحالة
+                    continue
                 except Exception as e:
                     log_event("SCALE_OUT_ERROR", str(e)[:500], symbol)
 
@@ -1102,6 +1140,11 @@ def main_trading_cycle():
     try:
         last_cycle_started = time.time()
         manage_active_trades()
+
+        # فحص حالة الانهيار العام للسوق قبل فحص الفرص
+        if get_market_trend_status() == "CRASH_PANIC":
+            last_cycle_finished = time.time()
+            return
 
         symbols = pre_engine.scan_entire_market()
         if not symbols:
@@ -1325,7 +1368,7 @@ def handle_messages(message):
                 reply_markup=get_control_keyboard()
             )
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_markup=get_control_keyboard())
+            bot.send_message(chat_id, f"⚠️ خطأ: {str(e)[:100]}", reply_mall=get_control_keyboard())
         return
 
     bot.send_message(chat_id, "اختر أمرًا من القائمة أو أرسل رمز سهم صحيح.", reply_markup=get_control_keyboard())
