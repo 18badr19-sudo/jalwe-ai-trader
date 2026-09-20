@@ -174,6 +174,7 @@ def init_db():
                 status TEXT,
                 strategy TEXT,
                 signal_score REAL,
+                scale_out_done INTEGER DEFAULT 0,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -222,6 +223,7 @@ def init_db():
                 "target3_price": "REAL",
                 "strategy": "TEXT",
                 "signal_score": "REAL",
+                "scale_out_done": "INTEGER DEFAULT 0",
                 "timestamp": "DATETIME"
             }
         )
@@ -374,7 +376,6 @@ def update_adaptive_weights_based_on_performance():
             wins = sum(1 for r in rows if r[0] == "WIN")
             win_rate = wins / len(rows)
             
-            # إذا زادت الخسائر، يرفع البوت الحد الأدنى للنقاط تلقائياً بحذر
             modifier = 4.0 if win_rate < 0.4 else (-2.0 if win_rate > 0.6 else 0.0)
             
             cursor.execute("""
@@ -660,7 +661,6 @@ def evaluate_momentum_and_strategies(
 
     trend_confirmed = True
 
-    # 1. Trend & Multi-Timeframe Confirmation
     if bars_1h is not None and len(bars_1h) >= 20:
         ma20_1h = bars_1h["close"].rolling(20).mean().iloc[-1]
         if price > ma20_1h:
@@ -680,7 +680,6 @@ def evaluate_momentum_and_strategies(
             score -= 8
             trend_confirmed = False
 
-    # 2. RVOL
     if rvol is not None:
         if rvol >= 2.0:
             score += 18
@@ -692,7 +691,6 @@ def evaluate_momentum_and_strategies(
             score -= 8
             reasons.append(f"⚠️ RVOL ضعيف: {rvol:.2f}x")
 
-    # 3. VWAP
     if vwap is not None:
         if price > vwap:
             score += 10
@@ -701,7 +699,6 @@ def evaluate_momentum_and_strategies(
             score -= 5
             reasons.append(f"🔴 السعر تحت VWAP: ${vwap:.2f}")
 
-    # 4. 15m Volume Acceleration
     if bars_15m is not None and len(bars_15m) >= 10:
         avg_volume = bars_15m["volume"].iloc[-11:-1].mean()
         current_volume = bars_15m["volume"].iloc[-1]
@@ -711,7 +708,6 @@ def evaluate_momentum_and_strategies(
                 score += 12
                 reasons.append(f"🔥 تسارع حجم 15m: {volume_ratio:.2f}x")
 
-    # 5. Breakout Proximity
     if bars_5m is not None and len(bars_5m) >= 20:
         resistance = bars_5m["high"].iloc[-21:-1].max()
         if price >= resistance * 0.995:
@@ -721,12 +717,10 @@ def evaluate_momentum_and_strategies(
             score += 8
             reasons.append("👀 السعر يقترب من منطقة الاختراق")
 
-    # 6. News Sentiment Integration
     news_score, news_reasons = get_news_sentiment(symbol)
     score += news_score
     reasons.extend(news_reasons)
 
-    # 7. Options Flow Engine Integration
     opt_score, opt_reasons = evaluate_options_flow(symbol)
     score += opt_score
     reasons.extend(opt_reasons)
@@ -758,7 +752,6 @@ def calculate_position_size(price, stop_price):
             return 0
 
         risk_pct = RISK_PER_TRADE_PCT
-        # تخفيض المخاطرة تلقائياً إذا كان السوق العام هابطاً (Market-Adaptive Risk)
         if get_market_trend_status() == "BEARISH":
             risk_pct = RISK_PER_TRADE_PCT / 2.0
 
@@ -884,9 +877,9 @@ def open_stock_trade(symbol, price, analysis):
                 (
                     symbol, order_id, entry_price, stop_loss_price,
                     target1_price, target2_price, target3_price,
-                    highest_price, qty, status, strategy, signal_score
+                    highest_price, qty, status, strategy, signal_score, scale_out_done
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     symbol, order_id, price, stop_price,
@@ -910,7 +903,7 @@ def open_stock_trade(symbol, price, analysis):
 
 
 # ============================================================
-# ACTIVE TRADE MANAGEMENT & ACTIVE LEARNING
+# ACTIVE TRADE MANAGEMENT & SCALE-OUT (البيع الجزئي الذكي)
 # ============================================================
 
 def manage_active_trades():
@@ -923,7 +916,7 @@ def manage_active_trades():
                 SELECT
                     symbol, order_id, entry_price, stop_loss_price,
                     target1_price, target2_price, target3_price,
-                    highest_price, qty, signal_score, strategy
+                    highest_price, qty, signal_score, strategy, scale_out_done
                 FROM active_trades_tracker
                 WHERE status='ACTIVE'
                 """
@@ -934,7 +927,7 @@ def manage_active_trades():
             (
                 symbol, order_id, entry_price, stop_loss,
                 target1, target2, target3, highest_price,
-                qty, signal_score, strategy
+                qty, signal_score, strategy, scale_out_done
             ) = trade
 
             price, _, _, bars_5m = get_market_data(symbol)
@@ -945,9 +938,50 @@ def manage_active_trades():
             profit_pct = ((price - entry_price) / entry_price) * 100
             current_stop = stop_loss
 
-            if target1 and price >= target1 and current_stop < entry_price:
-                current_stop = entry_price
+            # ====================================================
+            # ميزة البيع الجزئي (Scale-Out / Partial Take Profit)
+            # ====================================================
+            if target1 and price >= target1 and scale_out_done == 0 and qty > 1:
+                scale_qty = qty // 2  # بيع نصف الكمية
+                remaining_qty = qty - scale_qty
 
+                try:
+                    alpaca.submit_order(
+                        symbol=symbol,
+                        qty=scale_qty,
+                        side="sell",
+                        type="market",
+                        time_in_force="day"
+                    )
+
+                    partial_profit_usd = (price - entry_price) * scale_qty
+                    
+                    # تحديث الوقف إلى نقطة الدخول (Break-even) والكمية المتبقية
+                    current_stop = entry_price
+                    
+                    with db_connection() as conn:
+                        conn.execute(
+                            """
+                            UPDATE active_trades_tracker
+                            SET qty=?, stop_loss_price=?, scale_out_done=1, highest_price=?
+                            WHERE symbol=?
+                            """,
+                            (remaining_qty, current_stop, new_highest, symbol)
+                        )
+
+                    send_telegram(
+                        f"🎯 **تحقيق الهدف الأول (جني أرباح جزئي)**\n\n"
+                        f"📌 `{symbol}`\n"
+                        f"💵 سعر البيع الجزئي: `${price:.2f}`\n"
+                        f"📦 تم بيع: `{scale_qty}` سهم (50% من الكمية)\n"
+                        f"💰 ربح جزئي: `${partial_profit_usd:+.2f}`\n"
+                        f"🛡️ **الإجراء الآمن:** تم تحريك وقف الخسارة إلى نقطة الدخول (`${entry_price:.2f}`) الصفقة أصبحت محمية 100%!"
+                    )
+                    continue # الانتقال للدورة القادمة بعد تحديث الحالة
+                except Exception as e:
+                    log_event("SCALE_OUT_ERROR", str(e)[:500], symbol)
+
+            # تحريك الوقف تصاعدياً بعد الهدف الثاني أو الترانلينج
             if target2 and price >= target2:
                 current_stop = max(current_stop, target1)
 
@@ -1006,11 +1040,11 @@ def manage_active_trades():
                         pass
 
                     send_telegram(
-                        f"🔄 **إغلاق الصفقة (إدارة ذكية)**\n\n"
+                        f"🔄 **إغلاق المتبقي من الصفقة**\n\n"
                         f"📌 `{symbol}`\n"
                         f"💵 الدخول: `${entry_price:.2f}`\n"
                         f"💵 الخروج: `${price:.2f}`\n"
-                        f"📊 النتيجة: `{profit_pct:+.2f}%`\n"
+                        f"📊 النتيجة الإجمالية للسهم: `{profit_pct:+.2f}%`\n"
                         f"🎯 السبب: `{exit_reason}`"
                     )
 
@@ -1077,7 +1111,6 @@ def main_trading_cycle():
         active_symbols = get_active_symbols()
         candidates = []
 
-        # حساب الحد الأدنى المحدث بذكاء حسب كفاءة الصفقات السابقة
         dynamic_boost = get_adaptive_weight("score_threshold_boost", 0.0)
         effective_min_score = MIN_SIGNAL_SCORE + dynamic_boost
 
