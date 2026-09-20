@@ -7,22 +7,33 @@ class PositionManager:
     def evaluate_open_position(self, position_data: dict) -> str:
         """
         Monitors open positions for dynamic exits, stop loss tightening, 
-        or profit targets based on market movement and MFE/MAE.
+        or profit targets based on market movement and MFE/MAE safely.
         """
-        unrealized_pnl_pct = position_data.get("unrealized_pnl_pct", 0.0)
-        regime = position_data.get("market_regime", "NORMAL")
+        try:
+            if not isinstance(position_data, dict):
+                return "HOLD"
 
-        # Dynamic exit rules
-        if unrealized_pnl_pct <= -0.03:
-            return "EXIT_STOP_LOSS"
-        elif unrealized_pnl_pct >= 0.06:
-            return "EXIT_TAKE_PROFIT"
-        elif regime == "HIGH_VOLATILITY":
-            return "EXIT_VOLATILITY_SPIKE"
+            unrealized_pnl_pct = position_data.get("unrealized_pnl_pct", 0.0)
+            regime = position_data.get("market_regime", "NORMAL")
 
-        return "HOLD"
+            # Dynamic exit rules
+            if unrealized_pnl_pct <= -0.03:
+                return "EXIT_STOP_LOSS"
+            elif unrealized_pnl_pct >= 0.06:
+                return "EXIT_TAKE_PROFIT"
+            elif regime == "HIGH_VOLATILITY":
+                return "EXIT_VOLATILITY_SPIKE"
+
+            return "HOLD"
+        except Exception as e:
+            logging.error(f"Error evaluating open position: {e}")
+            return "HOLD"
 
 # Compatibility helper
 def manage_position(position_data: dict) -> str:
-    manager = PositionManager()
-    return manager.evaluate_open_position(position_data)
+    try:
+        manager = PositionManager()
+        return manager.evaluate_open_position(position_data)
+    except Exception as e:
+        logging.error(f"Error in manage_position helper: {e}")
+        return "HOLD"
