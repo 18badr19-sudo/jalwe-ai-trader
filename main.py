@@ -370,12 +370,12 @@ def update_adaptive_weights_based_on_performance():
             rows = cursor.fetchall()
             if len(rows) < 5:
                 return
-            
+
             wins = sum(1 for r in rows if r[0] == "WIN")
             win_rate = wins / len(rows)
-            
+
             modifier = 4.0 if win_rate < 0.4 else (-2.0 if win_rate > 0.6 else 0.0)
-            
+
             cursor.execute("""
                 INSERT OR REPLACE INTO adaptive_weights (factor_name, weight_modifier)
                 VALUES ('score_threshold_boost', ?)
@@ -395,7 +395,7 @@ def get_market_trend_status():
             ma10 = bars["close"].rolling(10).mean().iloc[-1]
             current_spy = bars["close"].iloc[-1]
             prev_spy = bars["close"].iloc[-2]
-            
+
             if current_spy < (ma10 * 0.97) and current_spy < prev_spy:
                 return "CRASH_PANIC"
             elif current_spy < ma10:
@@ -583,12 +583,12 @@ def get_news_sentiment(symbol):
 
         strong_positive = ["fda approval", "buyout", "massive contract", "record profit", "patent granted"]
         positive_words = [
-            "surge", "jump", "beat", "profit", "contract", 
+            "surge", "jump", "beat", "profit", "contract",
             "buy", "growth", "upgrade", "approval", "partnership", "guidance"
         ]
 
         negative_words = [
-            "drop", "miss", "loss", "lawsuit", "downgrade", 
+            "drop", "miss", "loss", "lawsuit", "downgrade",
             "sell", "crash", "risk", "offering", "dilution", "bankruptcy"
         ]
 
@@ -677,6 +677,12 @@ def evaluate_momentum_and_strategies(
 
     trend_confirmed = True
 
+    # --- NEW: قيم خام تُبنى بالتوازي لاستخدامها كـ features لنموذج AI ---
+    vwap_reclaimed = 0
+    distance_to_resistance = 0.01
+    volume_speed_high = 0
+    compression = 0.0
+
     if bars_1h is not None and len(bars_1h) >= 20:
         ma20_1h = bars_1h["close"].rolling(20).mean().iloc[-1]
         if price > ma20_1h:
@@ -711,9 +717,14 @@ def evaluate_momentum_and_strategies(
         if price > vwap:
             score += 10
             reasons.append(f"🟢 السعر فوق VWAP: ${vwap:.2f}")
+            vwap_reclaimed = 1
         else:
             score -= 5
             reasons.append(f"🔴 السعر تحت VWAP: ${vwap:.2f}")
+            vwap_reclaimed = 0
+
+    if atr is not None and price:
+        compression = round((atr / price) * 100, 4)
 
     if bars_15m is not None and len(bars_15m) >= 10:
         avg_volume = bars_15m["volume"].iloc[-11:-1].mean()
@@ -723,9 +734,12 @@ def evaluate_momentum_and_strategies(
             if volume_ratio >= 1.5:
                 score += 12
                 reasons.append(f"🔥 تسارع حجم 15m: {volume_ratio:.2f}x")
+                volume_speed_high = 1
 
     if bars_5m is not None and len(bars_5m) >= 20:
         resistance = bars_5m["high"].iloc[-21:-1].max()
+        if resistance:
+            distance_to_resistance = round((resistance - price) / price, 5)
         if price >= resistance * 0.995:
             score += 15
             reasons.append(f"🎯 السعر قريب جدًا من المقاومة: ${resistance:.2f}")
@@ -746,14 +760,46 @@ def evaluate_momentum_and_strategies(
         reasons.append(book_reason)
 
     score = max(0.0, min(100.0, score))
+    rule_score = round(score, 2)
+
+    # --- NEW: تجميع الـ features لتغذية محرك التعلم الآلي ---
+    ml_features = {
+        "status": "CANDIDATE",
+        "score": rule_score,
+        "rvol": rvol or 0.0,
+        "compression": compression,
+        "vwap_reclaimed": vwap_reclaimed,
+        "distance_to_resistance": distance_to_resistance,
+        "volume_speed": "HIGH" if volume_speed_high else "NORMAL",
+        "volume_speed_high": volume_speed_high,
+    }
+
+    # --- NEW: مزج احتمالية نموذج AI (لو جاهز) مع سكور القواعد ---
+    ml_probability = None
+    try:
+        if learning_engine and hasattr(learning_engine, "predict_win_probability"):
+            ml_probability = learning_engine.predict_win_probability(ml_features)
+    except Exception:
+        ml_probability = None
+
+    if ml_probability is not None:
+        blended_score = round((rule_score * 0.35) + (ml_probability * 100 * 0.65), 2)
+        final_score = max(0.0, min(100.0, blended_score))
+        reasons.append(f"🤖 احتمالية النجاح (نموذج AI): {ml_probability * 100:.1f}%")
+    else:
+        final_score = rule_score
+        reasons.append("🤖 نموذج AI لم يُدرَّب بعد (القرار يعتمد على القواعد فقط حاليًا)")
 
     return {
-        "score": round(score, 2),
+        "score": final_score,
+        "rule_score": rule_score,
+        "ml_probability": ml_probability,
         "rvol": rvol,
         "vwap": vwap,
         "atr": atr,
         "trend_confirmed": trend_confirmed,
-        "reasons": reasons
+        "reasons": reasons,
+        "ml_features": ml_features,
     }
 
 
@@ -773,7 +819,7 @@ def calculate_position_size(price, stop_price):
 
         risk_pct = RISK_PER_TRADE_PCT
         market_status = get_market_trend_status()
-        
+
         if market_status == "CRASH_PANIC":
             return 0
         elif market_status == "BEARISH":
@@ -915,6 +961,15 @@ def open_stock_trade(symbol, price, analysis):
                 )
             )
 
+        # NEW: تسجيل لقطة الميزات لهذه الصفقة كعينة تدريب جديدة (بدون نتيجة بعد)
+        try:
+            if learning_engine and hasattr(learning_engine, "save_feature_snapshot"):
+                snapshot_data = dict(analysis.get("ml_features", {}))
+                snapshot_data["status"] = "OPEN"
+                learning_engine.save_feature_snapshot(symbol, snapshot_data)
+        except Exception as e:
+            log_event("ML_SNAPSHOT_ERROR", str(e)[:500], symbol)
+
         return True, {
             "order_id": order_id,
             "qty": qty,
@@ -981,7 +1036,7 @@ def manage_active_trades():
 
                     partial_profit_usd = (price - entry_price) * scale_qty
                     current_stop = entry_price
-                    
+
                     with db_connection() as conn:
                         conn.execute(
                             """
@@ -1182,7 +1237,7 @@ def main_trading_cycle():
                 f"🚨 **JALWE V4 — فرصة ذكية مؤكدة**\n\n"
                 f"📌 السهم: `{symbol}`\n"
                 f"💵 السعر: `${price:.2f}`\n"
-                f"🧠 Score: `{analysis['score']:.1f}/100` (السوق: `{get_market_trend_status()}`)\n"
+                f"🧠 Score النهائي (قواعد+AI): `{analysis['score']:.1f}/100` (السوق: `{get_market_trend_status()}`)\n"
                 f"📊 RVOL: `{analysis['rvol'] if analysis['rvol'] else 'N/A'}`\n"
                 f"📈 VWAP: `${analysis['vwap']:.2f}`\n\n"
                 f"🟢 Entry: `${price:.2f}`\n"
@@ -1280,9 +1335,11 @@ def handle_messages(message):
         return
 
     if "فحص وتحفيز التعلم الذاتي" in text:
+        bot.send_message(chat_id, "🤖 جاري تشغيل تدريب نموذج AI (قد يستغرق لحظات)...", reply_markup=get_control_keyboard())
         try:
+            train_result = None
             if learning_engine and hasattr(learning_engine, "optimize_models"):
-                learning_engine.optimize_models()
+                train_result = learning_engine.optimize_models()
 
             with db_connection() as conn:
                 cursor = conn.cursor()
@@ -1291,16 +1348,29 @@ def handle_messages(message):
                 boost = get_adaptive_weight("score_threshold_boost", 0.0)
 
             snapshots = get_saved_snapshots_count()
+
+            if train_result and train_result.get("trained"):
+                acc_txt = f"{train_result['cv_accuracy']*100:.1f}%" if train_result.get("cv_accuracy") is not None else "N/A"
+                ml_status = (
+                    f"✅ النموذج مُدرَّب وجاهز\n"
+                    f"🎯 دقة التحقق: `{acc_txt}`\n"
+                    f"📚 عينات مستخدمة: `{train_result['samples']}`"
+                )
+            elif train_result:
+                ml_status = f"⏳ {train_result.get('reason', 'النموذج غير جاهز بعد')}"
+            else:
+                ml_status = "⏳ محرك التعلم غير متاح حاليًا."
+
             bot.send_message(
                 chat_id,
                 (
-                    "🧠 **حالة وتعلم النموذج الذكي**\n\n"
+                    "🧠 **حالة وتعلم النموذج الذكي (AI حقيقي)**\n\n"
                     f"📚 Snapshots: `{snapshots}`\n"
                     f"📊 الصفقات المغلقة: `{trades or 0}`\n"
                     f"📈 متوسط الأداء: `{avg_profit or 0:.2f}%`\n"
                     f"⚙️ تعديل المعايير التلقائي: `{boost:+.1f}`\n"
                     f"🌐 حالة السوق: `{get_market_trend_status()}`\n\n"
-                    "✅ يعمل النظام الذكي بكفاءة عالية."
+                    f"🤖 **نموذج AI (ML):**\n{ml_status}"
                 ),
                 parse_mode="Markdown",
                 reply_markup=get_control_keyboard()
@@ -1335,12 +1405,19 @@ def handle_messages(message):
             analysis = evaluate_momentum_and_strategies(symbol, price, bars_1h, bars_15m, bars_5m)
             reasons = "\n".join(f"• {reason}" for reason in analysis["reasons"])
 
+            if analysis.get("ml_probability") is not None:
+                ml_line = f"🤖 احتمالية النجاح (AI): `{analysis['ml_probability'] * 100:.1f}%`\n"
+            else:
+                ml_line = "🤖 نموذج AI: `غير جاهز بعد (يعمل بالقواعد فقط)`\n"
+
             bot.send_message(
                 chat_id,
                 (
                     f"🔬 **التحليل الذكي لـ {symbol}**\n\n"
                     f"💵 السعر: `${price:.2f}`\n"
-                    f"🧠 Score: `{analysis['score']:.1f}/100`\n"
+                    f"🧠 Score النهائي (قواعد+AI): `{analysis['score']:.1f}/100`\n"
+                    f"⚙️ Score القواعد فقط: `{analysis['rule_score']:.1f}/100`\n"
+                    f"{ml_line}"
                     f"📊 RVOL: `{analysis['rvol'] or 'N/A'}`\n"
                     f"📈 VWAP: `${analysis['vwap']:.2f}`\n"
                     f"🎯 مؤشر الاتجاه: `{'مؤكد ✅' if analysis['trend_confirmed'] else 'مخالف ⚠️'}`\n\n"
