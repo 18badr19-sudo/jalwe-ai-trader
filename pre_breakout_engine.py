@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# RESULT MODEL
+# PRE-BREAKOUT RESULT
 # ============================================================
 
 @dataclass
@@ -74,53 +74,58 @@ class PreBreakoutResult:
 
 
 # ============================================================
-# PRE BREAKOUT ENGINE
+# PRE-BREAKOUT ENGINE
 # ============================================================
 
 class PreBreakoutEngine:
     """
-    APEX Pre-Breakout Engine V2
+    APEX PRE-BREAKOUT ENGINE V2.1
 
     ROLE:
-        Detect stocks that are approaching a possible breakout.
+        Analyze candidates before sending the strongest
+        opportunities to News / AI / JALWE.
 
     IMPORTANT:
+
         RESEARCH ONLY.
 
         This engine DOES NOT:
+
         - buy
         - sell
-        - submit orders
+        - submit broker orders
         - manage positions
 
-    Pipeline:
+    PIPELINE:
 
+        MarketScanner
+            ↓
         ScannerEngine
-             ↓
+            ↓
         PreBreakoutEngine
-             ↓
-        strongest candidates
-             ↓
+            ↓
         News / Liquidity / AI
-             ↓
+            ↓
         Research Packet
-             ↓
+            ↓
         JALWE V4
 
     MACHINE LEARNING:
 
-        The RandomForest model is trained ONLY when
-        enough real historical outcomes are available.
+        The model is NOT trained on fake data.
 
-        No fake/dummy training data is used.
+        0 - 39 real samples:
+            RULES_ONLY
 
-        Until enough real samples exist:
-            RULE-BASED scoring is used.
+        40+ valid real samples:
+            RULES + REAL ML
     """
 
     # ========================================================
-    # FEATURE ORDER
+    # ML SETTINGS
     # ========================================================
+
+    DEFAULT_MIN_TRAINING_SAMPLES = 40
 
     FEATURE_NAMES = [
         "rvol",
@@ -142,25 +147,43 @@ class PreBreakoutEngine:
         min_training_samples: Optional[int] = None,
     ) -> None:
 
-        self.alpaca = (
-            alpaca_api
-        )
+        self.alpaca = alpaca_api
 
         self.learning_engine = (
             learning_engine
         )
 
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # We deliberately DO NOT read MIN_TRAINING_SAMPLES.
+        #
+        # That variable belongs to the wider AI system.
+        #
+        # PreBreakout has its own independent threshold.
+        # ----------------------------------------------------
+
         if min_training_samples is None:
 
-            min_training_samples = int(
-                os.getenv(
-                    "PREBREAKOUT_MIN_TRAINING_SAMPLES",
+            try:
+
+                min_training_samples = int(
                     os.getenv(
-                        "MIN_TRAINING_SAMPLES",
-                        "40",
-                    ),
+                        "PREBREAKOUT_MIN_TRAINING_SAMPLES",
+                        str(
+                            self.DEFAULT_MIN_TRAINING_SAMPLES
+                        ),
+                    )
                 )
-            )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                min_training_samples = (
+                    self.DEFAULT_MIN_TRAINING_SAMPLES
+                )
 
         self.min_training_samples = max(
             10,
@@ -186,7 +209,7 @@ class PreBreakoutEngine:
         self._initial_train()
 
     # ========================================================
-    # LEARNING DATA
+    # FETCH TRAINING DATA
     # ========================================================
 
     def _fetch_training_data(
@@ -251,9 +274,7 @@ class PreBreakoutEngine:
                 [],
             )
 
-        X_data, y_data = (
-            result
-        )
+        X_data, y_data = result
 
         return (
             list(
@@ -267,7 +288,7 @@ class PreBreakoutEngine:
         )
 
     # ========================================================
-    # VALIDATE TRAINING DATA
+    # PREPARE TRAINING DATA
     # ========================================================
 
     def _prepare_training_data(
@@ -364,7 +385,7 @@ class PreBreakoutEngine:
         )
 
     # ========================================================
-    # INITIAL TRAIN
+    # INITIAL ML TRAINING
     # ========================================================
 
     def _initial_train(
@@ -375,10 +396,13 @@ class PreBreakoutEngine:
             self._fetch_training_data()
         )
 
-        (
-            X,
-            y,
-        ) = (
+        self._training_samples = (
+            len(
+                X_data
+            )
+        )
+
+        X, y = (
             self._prepare_training_data(
                 X_data,
                 y_data,
@@ -393,15 +417,9 @@ class PreBreakoutEngine:
 
             self._is_trained = False
 
-            self._training_samples = (
-                len(
-                    X_data
-                )
-            )
-
             logger.info(
                 "PreBreakout ML waiting for "
-                "real training data: %s/%s samples.",
+                "real data: %s/%s samples.",
                 self._training_samples,
                 self.min_training_samples,
             )
@@ -422,13 +440,13 @@ class PreBreakoutEngine:
         )
 
         logger.info(
-            "PreBreakout ML trained with "
-            "%s real samples.",
+            "PreBreakout ML trained "
+            "with %s real samples.",
             self._training_samples,
         )
 
     # ========================================================
-    # RETRAIN WITH REAL DATA
+    # RETRAIN
     # ========================================================
 
     def update_model_with_real_data(
@@ -439,10 +457,13 @@ class PreBreakoutEngine:
             self._fetch_training_data()
         )
 
-        (
-            X,
-            y,
-        ) = (
+        self._training_samples = (
+            len(
+                X_data
+            )
+        )
+
+        X, y = (
             self._prepare_training_data(
                 X_data,
                 y_data,
@@ -454,12 +475,6 @@ class PreBreakoutEngine:
             or
             y is None
         ):
-
-            self._training_samples = (
-                len(
-                    X_data
-                )
-            )
 
             return False
 
@@ -485,7 +500,7 @@ class PreBreakoutEngine:
         return True
 
     # ========================================================
-    # GET BARS
+    # GET MARKET BARS
     # ========================================================
 
     def _get_bars(
@@ -528,7 +543,6 @@ class PreBreakoutEngine:
 
         except TypeError:
 
-            # Compatibility with older SDK versions.
             bars = (
                 self.alpaca.get_bars(
                     symbol,
@@ -665,7 +679,7 @@ class PreBreakoutEngine:
             )
         )
 
-        vwap = (
+        return (
             (
                 typical_price
                 *
@@ -676,10 +690,8 @@ class PreBreakoutEngine:
             cumulative_volume
         )
 
-        return vwap
-
     # ========================================================
-    # LIVE METRICS
+    # CALCULATE LIVE METRICS
     # ========================================================
 
     def calculate_metrics(
@@ -700,21 +712,13 @@ class PreBreakoutEngine:
             )
         )
 
-        close = (
-            dataframe["close"]
-        )
+        close = dataframe["close"]
 
-        high = (
-            dataframe["high"]
-        )
+        high = dataframe["high"]
 
-        low = (
-            dataframe["low"]
-        )
+        low = dataframe["low"]
 
-        volume = (
-            dataframe["volume"]
-        )
+        volume = dataframe["volume"]
 
         current_price = float(
             close.iloc[-1]
@@ -768,9 +772,7 @@ class PreBreakoutEngine:
 
         else:
 
-            distance_to_resistance = (
-                1.0
-            )
+            distance_to_resistance = 1.0
 
         distance_to_resistance_pct = (
             distance_to_resistance
@@ -820,9 +822,7 @@ class PreBreakoutEngine:
 
         else:
 
-            compression_ratio = (
-                999.0
-            )
+            compression_ratio = 999.0
 
         compression = int(
             compression_ratio
@@ -830,7 +830,7 @@ class PreBreakoutEngine:
         )
 
         # ====================================================
-        # VWAP / RECLAIM
+        # VWAP
         # ====================================================
 
         vwap_series = (
@@ -886,27 +886,19 @@ class PreBreakoutEngine:
 
         else:
 
-            volume_speed_ratio = (
-                0.0
-            )
+            volume_speed_ratio = 0.0
 
         if volume_speed_ratio >= 1.50:
 
-            volume_speed = (
-                "HIGH"
-            )
+            volume_speed = "HIGH"
 
         elif volume_speed_ratio >= 1.10:
 
-            volume_speed = (
-                "RISING"
-            )
+            volume_speed = "RISING"
 
         else:
 
-            volume_speed = (
-                "NORMAL"
-            )
+            volume_speed = "NORMAL"
 
         # ====================================================
         # SHORT MOMENTUM
@@ -959,95 +951,73 @@ class PreBreakoutEngine:
         return {
             "symbol": symbol,
 
-            "current_price": (
-                round(
-                    current_price,
-                    4,
-                )
+            "current_price": round(
+                current_price,
+                4,
             ),
 
-            "rvol": (
-                round(
-                    float(
-                        rvol
-                    ),
-                    4,
-                )
+            "rvol": round(
+                float(
+                    rvol
+                ),
+                4,
             ),
 
-            "compression": (
-                compression
+            "compression": compression,
+
+            "compression_ratio": round(
+                float(
+                    compression_ratio
+                ),
+                4,
             ),
 
-            "compression_ratio": (
-                round(
-                    float(
-                        compression_ratio
-                    ),
-                    4,
-                )
+            "vwap": round(
+                current_vwap,
+                4,
             ),
 
-            "vwap": (
-                round(
-                    current_vwap,
-                    4,
-                )
-            ),
-
-            "above_vwap": (
-                above_vwap
-            ),
+            "above_vwap": above_vwap,
 
             "vwap_reclaimed": (
                 vwap_reclaimed
             ),
 
-            "resistance": (
-                round(
-                    resistance,
-                    4,
-                )
+            "resistance": round(
+                resistance,
+                4,
             ),
 
-            "distance_to_resistance": (
-                round(
-                    float(
-                        distance_to_resistance
-                    ),
-                    6,
-                )
+            "distance_to_resistance": round(
+                float(
+                    distance_to_resistance
+                ),
+                6,
             ),
 
-            "distance_to_resistance_pct": (
-                round(
-                    float(
-                        distance_to_resistance_pct
-                    ),
-                    3,
-                )
+            "distance_to_resistance_pct": round(
+                float(
+                    distance_to_resistance_pct
+                ),
+                3,
             ),
 
             "volume_speed": (
                 volume_speed
             ),
 
-            "volume_speed_ratio": (
-                round(
-                    float(
-                        volume_speed_ratio
-                    ),
-                    4,
-                )
+            "volume_speed_ratio": round(
+                float(
+                    volume_speed_ratio
+                ),
+                4,
             ),
 
-            "momentum_3_pct": (
-                round(
-                    float(
-                        momentum_3
-                    ),
-                    3,
-                )
+            "momentum_3_pct": round(
+                float(
+                    momentum_3
+                ),
+                3,
             ),
 
             "near_resistance": (
@@ -1058,15 +1028,11 @@ class PreBreakoutEngine:
                 already_broken_out
             ),
 
-            "bars_used": (
-                len(
-                    dataframe
-                )
+            "bars_used": len(
+                dataframe
             ),
 
-            "status": (
-                "SUCCESS"
-            ),
+            "status": "SUCCESS",
         }
 
     # ========================================================
@@ -1088,6 +1054,10 @@ class PreBreakoutEngine:
 
         warnings: list[str] = []
 
+        # ====================================================
+        # RVOL
+        # ====================================================
+
         rvol = float(
             data.get(
                 "rvol",
@@ -1095,10 +1065,6 @@ class PreBreakoutEngine:
             )
             or 0.0
         )
-
-        # ----------------------------------------------------
-        # RVOL = 25 points
-        # ----------------------------------------------------
 
         if rvol >= 3.0:
 
@@ -1134,9 +1100,9 @@ class PreBreakoutEngine:
                 "Weak relative volume"
             )
 
-        # ----------------------------------------------------
-        # Compression = 20 points
-        # ----------------------------------------------------
+        # ====================================================
+        # COMPRESSION
+        # ====================================================
 
         if int(
             data.get(
@@ -1151,9 +1117,9 @@ class PreBreakoutEngine:
                 "Price compression near resistance"
             )
 
-        # ----------------------------------------------------
-        # VWAP = 15 points
-        # ----------------------------------------------------
+        # ====================================================
+        # VWAP
+        # ====================================================
 
         if int(
             data.get(
@@ -1187,9 +1153,9 @@ class PreBreakoutEngine:
                 "Price below VWAP"
             )
 
-        # ----------------------------------------------------
-        # Distance to resistance = 25 points
-        # ----------------------------------------------------
+        # ====================================================
+        # RESISTANCE DISTANCE
+        # ====================================================
 
         distance = float(
             data.get(
@@ -1251,9 +1217,9 @@ class PreBreakoutEngine:
                 "Too far from resistance"
             )
 
-        # ----------------------------------------------------
-        # Volume acceleration = 15 points
-        # ----------------------------------------------------
+        # ====================================================
+        # VOLUME SPEED
+        # ====================================================
 
         volume_speed = str(
             data.get(
@@ -1278,9 +1244,9 @@ class PreBreakoutEngine:
                 "Volume is accelerating"
             )
 
-        # ----------------------------------------------------
-        # Momentum bonus
-        # ----------------------------------------------------
+        # ====================================================
+        # MOMENTUM
+        # ====================================================
 
         momentum = float(
             data.get(
@@ -1321,7 +1287,7 @@ class PreBreakoutEngine:
         )
 
     # ========================================================
-    # BUILD MODEL FEATURES
+    # BUILD ML FEATURES
     # ========================================================
 
     @staticmethod
@@ -1437,7 +1403,7 @@ class PreBreakoutEngine:
             return None
 
     # ========================================================
-    # EVALUATE METRICS
+    # EVALUATE
     # ========================================================
 
     def evaluate_pre_breakout(
@@ -1461,10 +1427,9 @@ class PreBreakoutEngine:
             )
         )
 
-        # ----------------------------------------------------
-        # No trained ML yet:
-        # Trust deterministic live-market rules.
-        # ----------------------------------------------------
+        # ====================================================
+        # RULES ONLY
+        # ====================================================
 
         if ml_probability is None:
 
@@ -1476,6 +1441,10 @@ class PreBreakoutEngine:
                 "RULES_ONLY"
             )
 
+        # ====================================================
+        # REAL ML BLEND
+        # ====================================================
+
         else:
 
             ml_score = (
@@ -1484,7 +1453,6 @@ class PreBreakoutEngine:
                 100.0
             )
 
-            # Real market structure remains majority.
             final_score = (
                 rule_score
                 *
@@ -1514,12 +1482,9 @@ class PreBreakoutEngine:
             2,
         )
 
-        # ----------------------------------------------------
-        # Research status.
-        #
-        # Deliberately NOT named ENTRY.
-        # JALWE makes the final trade decision.
-        # ----------------------------------------------------
+        # ====================================================
+        # RESEARCH STATUS
+        # ====================================================
 
         status = "WATCH"
 
@@ -1542,21 +1507,16 @@ class PreBreakoutEngine:
             )
 
         ready = bool(
-            final_score >= 70
+            final_score
+            >= 70
         )
 
         return {
-            "score": (
-                final_score
-            ),
+            "score": final_score,
 
-            "status": (
-                status
-            ),
+            "status": status,
 
-            "ready": (
-                ready
-            ),
+            "ready": ready,
 
             "model_source": (
                 model_source
@@ -1572,17 +1532,13 @@ class PreBreakoutEngine:
                 else None
             ),
 
-            "reasons": (
-                reasons
-            ),
+            "reasons": reasons,
 
-            "warnings": (
-                warnings
-            ),
+            "warnings": warnings,
         }
 
     # ========================================================
-    # ANALYZE SYMBOL
+    # ANALYZE ONE SYMBOL
     # ========================================================
 
     def analyze_symbol(
@@ -1624,11 +1580,15 @@ class PreBreakoutEngine:
 
             return PreBreakoutResult(
                 symbol=symbol,
+
                 status="DATA_ERROR",
+
                 ready=False,
+
                 warnings=[
                     "MARKET_DATA_UNAVAILABLE"
                 ],
+
                 error=str(
                     exc
                 ),
@@ -1765,7 +1725,7 @@ class PreBreakoutEngine:
         )
 
     # ========================================================
-    # BATCH ANALYSIS
+    # ANALYZE MANY SYMBOLS
     # ========================================================
 
     def analyze_symbols(
