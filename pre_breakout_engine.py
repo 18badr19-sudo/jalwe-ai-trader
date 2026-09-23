@@ -16,7 +16,31 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# PRE-BREAKOUT RESULT
+# CUSTOM MARKET DATA ERROR
+# ============================================================
+
+class PreBreakoutDataError(RuntimeError):
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: str = "DATA_ERROR",
+        diagnostics: Optional[list[str]] = None,
+    ) -> None:
+
+        super().__init__(message)
+
+        self.status = status
+
+        self.diagnostics = list(
+            diagnostics
+            or []
+        )
+
+
+# ============================================================
+# RESULT MODEL
 # ============================================================
 
 @dataclass
@@ -33,6 +57,20 @@ class PreBreakoutResult:
     model_source: str = "RULES_ONLY"
 
     ml_probability: Optional[float] = None
+
+    # --------------------------------------------------------
+    # DATA QUALITY
+    # --------------------------------------------------------
+
+    data_status: str = "UNKNOWN"
+
+    timeframe_used: Optional[str] = None
+
+    bars_used: int = 0
+
+    # --------------------------------------------------------
+    # MARKET METRICS
+    # --------------------------------------------------------
 
     rvol: Optional[float] = None
 
@@ -58,6 +96,10 @@ class PreBreakoutResult:
 
     current_price: Optional[float] = None
 
+    # --------------------------------------------------------
+    # EXPLANATION
+    # --------------------------------------------------------
+
     reasons: list[str] = field(
         default_factory=list
     )
@@ -70,6 +112,10 @@ class PreBreakoutResult:
         default_factory=dict
     )
 
+    diagnostics: list[str] = field(
+        default_factory=list
+    )
+
     error: Optional[str] = None
 
 
@@ -79,30 +125,18 @@ class PreBreakoutResult:
 
 class PreBreakoutEngine:
     """
-    APEX PRE-BREAKOUT ENGINE V2.1
+    APEX PRE-BREAKOUT ENGINE V2.2
 
-    ROLE:
-        Analyze candidates before sending the strongest
-        opportunities to News / AI / JALWE.
+    PURPOSE:
+        Research-only detector for possible pre-breakout setups.
 
-    IMPORTANT:
+    FLOW:
 
-        RESEARCH ONLY.
-
-        This engine DOES NOT:
-
-        - buy
-        - sell
-        - submit broker orders
-        - manage positions
-
-    PIPELINE:
-
-        MarketScanner
-            ↓
         ScannerEngine
             ↓
         PreBreakoutEngine
+            ↓
+        strongest candidates
             ↓
         News / Liquidity / AI
             ↓
@@ -110,15 +144,29 @@ class PreBreakoutEngine:
             ↓
         JALWE V4
 
-    MACHINE LEARNING:
+    DATA FALLBACK:
 
-        The model is NOT trained on fake data.
+        Try 5Min
+            ↓
+        if unavailable / insufficient
+            ↓
+        Try 15Min
+            ↓
+        if unavailable / insufficient
+            ↓
+        Try 30Min
+            ↓
+        if still insufficient
+            ↓
+        DATA_UNAVAILABLE
 
-        0 - 39 real samples:
-            RULES_ONLY
+    SAFETY:
 
-        40+ valid real samples:
-            RULES + REAL ML
+        - no synthetic market data
+        - no dummy ML training data
+        - no broker order execution
+        - no BUY/SELL decision
+        - missing data cannot create a fake score
     """
 
     # ========================================================
@@ -136,6 +184,36 @@ class PreBreakoutEngine:
     ]
 
     # ========================================================
+    # MARKET DATA FALLBACK
+    # ========================================================
+
+    TIMEFRAME_CANDIDATES = [
+        {
+            "timeframe": "5Min",
+            "limit": 100,
+            "minimum_bars": 25,
+        },
+        {
+            "timeframe": "15Min",
+            "limit": 80,
+            "minimum_bars": 20,
+        },
+        {
+            "timeframe": "30Min",
+            "limit": 60,
+            "minimum_bars": 15,
+        },
+    ]
+
+    REQUIRED_COLUMNS = {
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    }
+
+    # ========================================================
     # INIT
     # ========================================================
 
@@ -149,19 +227,7 @@ class PreBreakoutEngine:
 
         self.alpaca = alpaca_api
 
-        self.learning_engine = (
-            learning_engine
-        )
-
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
-        # We deliberately DO NOT read MIN_TRAINING_SAMPLES.
-        #
-        # That variable belongs to the wider AI system.
-        #
-        # PreBreakout has its own independent threshold.
-        # ----------------------------------------------------
+        self.learning_engine = learning_engine
 
         if min_training_samples is None:
 
@@ -209,17 +275,14 @@ class PreBreakoutEngine:
         self._initial_train()
 
     # ========================================================
-    # FETCH TRAINING DATA
+    # TRAINING DATA
     # ========================================================
 
     def _fetch_training_data(
         self,
     ) -> tuple[list, list]:
 
-        if (
-            self.learning_engine
-            is None
-        ):
+        if self.learning_engine is None:
 
             return (
                 [],
@@ -243,9 +306,7 @@ class PreBreakoutEngine:
 
         try:
 
-            result = (
-                fetch_method()
-            )
+            result = fetch_method()
 
         except Exception as exc:
 
@@ -385,7 +446,7 @@ class PreBreakoutEngine:
         )
 
     # ========================================================
-    # INITIAL ML TRAINING
+    # INITIAL TRAIN
     # ========================================================
 
     def _initial_train(
@@ -418,8 +479,8 @@ class PreBreakoutEngine:
             self._is_trained = False
 
             logger.info(
-                "PreBreakout ML waiting for "
-                "real data: %s/%s samples.",
+                "PreBreakout ML waiting "
+                "for real data: %s/%s",
                 self._training_samples,
                 self.min_training_samples,
             )
@@ -433,16 +494,8 @@ class PreBreakoutEngine:
 
         self._is_trained = True
 
-        self._training_samples = (
-            len(
-                X
-            )
-        )
-
-        logger.info(
-            "PreBreakout ML trained "
-            "with %s real samples.",
-            self._training_samples,
+        self._training_samples = len(
+            X
         )
 
     # ========================================================
@@ -457,10 +510,8 @@ class PreBreakoutEngine:
             self._fetch_training_data()
         )
 
-        self._training_samples = (
-            len(
-                X_data
-            )
+        self._training_samples = len(
+            X_data
         )
 
         X, y = (
@@ -485,10 +536,8 @@ class PreBreakoutEngine:
 
         self._is_trained = True
 
-        self._training_samples = (
-            len(
-                X
-            )
+        self._training_samples = len(
+            X
         )
 
         logger.info(
@@ -500,22 +549,13 @@ class PreBreakoutEngine:
         return True
 
     # ========================================================
-    # GET MARKET BARS
+    # SYMBOL
     # ========================================================
 
-    def _get_bars(
-        self,
+    @staticmethod
+    def _normalize_symbol(
         symbol: str,
-        *,
-        timeframe: str = "5Min",
-        limit: int = 100,
-    ) -> pd.DataFrame:
-
-        if self.alpaca is None:
-
-            raise RuntimeError(
-                "Alpaca API is not available."
-            )
+    ) -> str:
 
         symbol = str(
             symbol
@@ -528,77 +568,166 @@ class PreBreakoutEngine:
                 "Symbol cannot be empty."
             )
 
-        try:
+        return symbol
 
-            bars = (
-                self.alpaca.get_bars(
-                    symbol,
-                    timeframe,
-                    limit=int(
-                        limit
-                    ),
-                    feed="iex",
-                )
-            )
+    # ========================================================
+    # NORMALIZE DATAFRAME
+    # ========================================================
 
-        except TypeError:
-
-            bars = (
-                self.alpaca.get_bars(
-                    symbol,
-                    timeframe,
-                    limit=int(
-                        limit
-                    ),
-                )
-            )
-
-        dataframe = getattr(
-            bars,
-            "df",
-            None,
-        )
+    def _normalize_dataframe(
+        self,
+        dataframe: Any,
+        symbol: str,
+    ) -> pd.DataFrame:
 
         if dataframe is None:
 
-            raise RuntimeError(
-                "Alpaca returned no dataframe."
+            raise PreBreakoutDataError(
+                "Market data dataframe is None.",
+                status="EMPTY_DATA",
             )
 
-        dataframe = (
-            dataframe.copy()
-        )
+        if not isinstance(
+            dataframe,
+            pd.DataFrame,
+        ):
+
+            try:
+
+                dataframe = pd.DataFrame(
+                    dataframe
+                )
+
+            except Exception as exc:
+
+                raise PreBreakoutDataError(
+                    "Could not convert market data "
+                    "to dataframe.",
+                    status="INVALID_DATAFRAME",
+                ) from exc
+
+        dataframe = dataframe.copy()
+
+        if dataframe.empty:
+
+            raise PreBreakoutDataError(
+                "Market data dataframe is empty.",
+                status="EMPTY_DATA",
+            )
+
+        # ----------------------------------------------------
+        # Alpaca can return MultiIndex.
+        # ----------------------------------------------------
 
         if isinstance(
             dataframe.index,
             pd.MultiIndex,
         ):
 
+            extracted = False
+
+            for level in range(
+                dataframe.index.nlevels
+            ):
+
+                try:
+
+                    values = (
+                        dataframe.index
+                        .get_level_values(
+                            level
+                        )
+                        .astype(str)
+                        .str.upper()
+                    )
+
+                    if symbol in set(
+                        values
+                    ):
+
+                        dataframe = (
+                            dataframe.xs(
+                                symbol,
+                                level=level,
+                            )
+                        )
+
+                        extracted = True
+                        break
+
+                except Exception:
+                    continue
+
+            if not extracted:
+
+                try:
+
+                    dataframe = (
+                        dataframe.reset_index()
+                    )
+
+                except Exception:
+                    pass
+
+        # ----------------------------------------------------
+        # Normalize column names.
+        # ----------------------------------------------------
+
+        dataframe.columns = [
+            str(column)
+            .strip()
+            .lower()
+            for column
+            in dataframe.columns
+        ]
+
+        # ----------------------------------------------------
+        # If symbol column exists because of reset_index,
+        # keep only requested symbol.
+        # ----------------------------------------------------
+
+        if (
+            "symbol"
+            in dataframe.columns
+        ):
+
             try:
 
-                dataframe = (
-                    dataframe.xs(
-                        symbol,
-                        level=0,
-                    )
+                mask = (
+                    dataframe["symbol"]
+                    .astype(str)
+                    .str.upper()
+                    ==
+                    symbol
                 )
+
+                filtered = (
+                    dataframe.loc[
+                        mask
+                    ]
+                    .copy()
+                )
+
+                if not filtered.empty:
+
+                    dataframe = filtered
 
             except Exception:
+                pass
 
-                dataframe = (
-                    dataframe.reset_index()
-                )
+        if dataframe.empty:
 
-        required_columns = {
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-        }
+            raise PreBreakoutDataError(
+                "No rows exist for requested symbol.",
+                status="EMPTY_DATA",
+            )
+
+        # ----------------------------------------------------
+        # Required OHLCV columns.
+        # ----------------------------------------------------
 
         missing_columns = (
-            required_columns
+            self.REQUIRED_COLUMNS
             -
             set(
                 dataframe.columns
@@ -607,17 +736,22 @@ class PreBreakoutEngine:
 
         if missing_columns:
 
-            raise RuntimeError(
+            raise PreBreakoutDataError(
                 "Missing market data columns: "
                 + ", ".join(
                     sorted(
                         missing_columns
                     )
-                )
+                ),
+                status="INVALID_COLUMNS",
             )
 
+        # ----------------------------------------------------
+        # Convert numbers safely.
+        # ----------------------------------------------------
+
         for column in (
-            required_columns
+            self.REQUIRED_COLUMNS
         ):
 
             dataframe[column] = (
@@ -639,19 +773,216 @@ class PreBreakoutEngine:
             )
         )
 
-        if (
-            len(
-                dataframe
-            )
-            < 25
-        ):
+        if dataframe.empty:
 
-            raise RuntimeError(
-                "Not enough bars for "
-                "PreBreakout analysis."
+            raise PreBreakoutDataError(
+                "OHLCV rows became empty "
+                "after numeric cleaning.",
+                status="EMPTY_DATA",
             )
 
         return dataframe
+
+    # ========================================================
+    # FETCH ONE TIMEFRAME
+    # ========================================================
+
+    def _get_bars_for_timeframe(
+        self,
+        symbol: str,
+        *,
+        timeframe: str,
+        limit: int,
+    ) -> pd.DataFrame:
+
+        if self.alpaca is None:
+
+            raise PreBreakoutDataError(
+                "Alpaca API is not available.",
+                status="API_UNAVAILABLE",
+            )
+
+        try:
+
+            try:
+
+                bars = (
+                    self.alpaca.get_bars(
+                        symbol,
+                        timeframe,
+                        limit=int(
+                            limit
+                        ),
+                        feed="iex",
+                    )
+                )
+
+            except TypeError:
+
+                bars = (
+                    self.alpaca.get_bars(
+                        symbol,
+                        timeframe,
+                        limit=int(
+                            limit
+                        ),
+                    )
+                )
+
+        except Exception as exc:
+
+            raise PreBreakoutDataError(
+                f"Alpaca request failed "
+                f"for {timeframe}: {exc}",
+                status="API_ERROR",
+            ) from exc
+
+        dataframe = getattr(
+            bars,
+            "df",
+            None,
+        )
+
+        if dataframe is None:
+
+            # Some SDK responses may already
+            # behave like a dataframe/list.
+            dataframe = bars
+
+        return (
+            self._normalize_dataframe(
+                dataframe,
+                symbol,
+            )
+        )
+
+    # ========================================================
+    # FALLBACK MARKET DATA
+    # ========================================================
+
+    def _get_best_bars(
+        self,
+        symbol: str,
+    ) -> tuple[
+        pd.DataFrame,
+        str,
+        list[str],
+    ]:
+
+        diagnostics: list[str] = []
+
+        best_partial: Optional[
+            tuple[
+                pd.DataFrame,
+                str,
+                int,
+            ]
+        ] = None
+
+        for candidate in (
+            self.TIMEFRAME_CANDIDATES
+        ):
+
+            timeframe = str(
+                candidate[
+                    "timeframe"
+                ]
+            )
+
+            limit = int(
+                candidate[
+                    "limit"
+                ]
+            )
+
+            minimum_bars = int(
+                candidate[
+                    "minimum_bars"
+                ]
+            )
+
+            try:
+
+                dataframe = (
+                    self._get_bars_for_timeframe(
+                        symbol,
+                        timeframe=timeframe,
+                        limit=limit,
+                    )
+                )
+
+            except PreBreakoutDataError as exc:
+
+                diagnostics.append(
+                    f"{timeframe}:"
+                    f"{exc.status}:"
+                    f"{exc}"
+                )
+
+                continue
+
+            bar_count = len(
+                dataframe
+            )
+
+            diagnostics.append(
+                f"{timeframe}:"
+                f"BARS={bar_count}"
+            )
+
+            if (
+                best_partial
+                is None
+                or
+                bar_count
+                >
+                best_partial[2]
+            ):
+
+                best_partial = (
+                    dataframe,
+                    timeframe,
+                    bar_count,
+                )
+
+            if (
+                bar_count
+                >= minimum_bars
+            ):
+
+                return (
+                    dataframe,
+                    timeframe,
+                    diagnostics,
+                )
+
+            diagnostics.append(
+                f"{timeframe}:"
+                f"INSUFFICIENT_BARS="
+                f"{bar_count}/"
+                f"{minimum_bars}"
+            )
+
+        # ----------------------------------------------------
+        # We intentionally DO NOT score partial data.
+        # ----------------------------------------------------
+
+        if best_partial is not None:
+
+            raise PreBreakoutDataError(
+                "Market data exists but "
+                "there are not enough bars "
+                "for reliable analysis.",
+                status="INSUFFICIENT_BARS",
+                diagnostics=diagnostics,
+            )
+
+        raise PreBreakoutDataError(
+            "No usable market data was "
+            "available in 5Min, 15Min or 30Min.",
+            status="DATA_UNAVAILABLE",
+            diagnostics=diagnostics,
+        )
 
     # ========================================================
     # VWAP
@@ -691,7 +1022,7 @@ class PreBreakoutEngine:
         )
 
     # ========================================================
-    # CALCULATE LIVE METRICS
+    # LIVE METRICS
     # ========================================================
 
     def calculate_metrics(
@@ -699,29 +1030,64 @@ class PreBreakoutEngine:
         symbol: str,
     ) -> dict[str, Any]:
 
-        symbol = str(
-            symbol
-            or ""
-        ).strip().upper()
-
-        dataframe = (
-            self._get_bars(
-                symbol,
-                timeframe="5Min",
-                limit=100,
+        symbol = (
+            self._normalize_symbol(
+                symbol
             )
         )
 
-        close = dataframe["close"]
+        (
+            dataframe,
+            timeframe_used,
+            diagnostics,
+        ) = (
+            self._get_best_bars(
+                symbol
+            )
+        )
 
-        high = dataframe["high"]
+        close = dataframe[
+            "close"
+        ]
 
-        low = dataframe["low"]
+        high = dataframe[
+            "high"
+        ]
 
-        volume = dataframe["volume"]
+        low = dataframe[
+            "low"
+        ]
+
+        volume = dataframe[
+            "volume"
+        ]
 
         current_price = float(
             close.iloc[-1]
+        )
+
+        # ====================================================
+        # DYNAMIC LOOKBACK
+        # ====================================================
+
+        available_bars = len(
+            dataframe
+        )
+
+        main_lookback = min(
+            20,
+            max(
+                10,
+                available_bars - 1,
+            ),
+        )
+
+        compression_window = min(
+            5,
+            max(
+                3,
+                available_bars // 4,
+            ),
         )
 
         # ====================================================
@@ -729,7 +1095,12 @@ class PreBreakoutEngine:
         # ====================================================
 
         prior_volume = (
-            volume.iloc[-21:-1]
+            volume.iloc[
+                -(
+                    main_lookback
+                    + 1
+                ):-1
+            ]
         )
 
         average_volume = float(
@@ -740,7 +1111,13 @@ class PreBreakoutEngine:
             volume.iloc[-1]
         )
 
-        if average_volume > 0:
+        if (
+            np.isfinite(
+                average_volume
+            )
+            and
+            average_volume > 0
+        ):
 
             rvol = (
                 latest_volume
@@ -756,13 +1133,26 @@ class PreBreakoutEngine:
         # RESISTANCE
         # ====================================================
 
-        resistance = float(
-            high
-            .iloc[-21:-1]
-            .max()
+        previous_highs = (
+            high.iloc[
+                -(
+                    main_lookback
+                    + 1
+                ):-1
+            ]
         )
 
-        if resistance > 0:
+        resistance = float(
+            previous_highs.max()
+        )
+
+        if (
+            np.isfinite(
+                resistance
+            )
+            and
+            resistance > 0
+        ):
 
             distance_to_resistance = (
                 resistance
@@ -786,13 +1176,17 @@ class PreBreakoutEngine:
 
         recent_high = float(
             high
-            .iloc[-5:]
+            .iloc[
+                -compression_window:
+            ]
             .max()
         )
 
         recent_low = float(
             low
-            .iloc[-5:]
+            .iloc[
+                -compression_window:
+            ]
             .min()
         )
 
@@ -802,17 +1196,44 @@ class PreBreakoutEngine:
             recent_low
         )
 
-        historical_ranges = (
-            high.iloc[-25:-5]
+        historical_end = (
+            -compression_window
+        )
+
+        historical_start = max(
+            0,
+            available_bars
             -
-            low.iloc[-25:-5]
+            (
+                compression_window
+                +
+                main_lookback
+            ),
+        )
+
+        historical_ranges = (
+            high.iloc[
+                historical_start:
+                historical_end
+            ]
+            -
+            low.iloc[
+                historical_start:
+                historical_end
+            ]
         )
 
         baseline_range = float(
             historical_ranges.mean()
         )
 
-        if baseline_range > 0:
+        if (
+            np.isfinite(
+                baseline_range
+            )
+            and
+            baseline_range > 0
+        ):
 
             compression_ratio = (
                 recent_range
@@ -852,12 +1273,20 @@ class PreBreakoutEngine:
         )
 
         above_vwap = bool(
+            np.isfinite(
+                current_vwap
+            )
+            and
             current_price
             >
             current_vwap
         )
 
         vwap_reclaimed = int(
+            np.isfinite(
+                previous_vwap
+            )
+            and
             previous_close
             <= previous_vwap
             and
@@ -870,13 +1299,32 @@ class PreBreakoutEngine:
         # VOLUME SPEED
         # ====================================================
 
+        volume_window = min(
+            5,
+            max(
+                2,
+                available_bars - 1,
+            ),
+        )
+
         recent_volume_baseline = float(
             volume
-            .iloc[-6:-1]
+            .iloc[
+                -(
+                    volume_window
+                    + 1
+                ):-1
+            ]
             .mean()
         )
 
-        if recent_volume_baseline > 0:
+        if (
+            np.isfinite(
+                recent_volume_baseline
+            )
+            and
+            recent_volume_baseline > 0
+        ):
 
             volume_speed_ratio = (
                 latest_volume
@@ -951,6 +1399,22 @@ class PreBreakoutEngine:
         return {
             "symbol": symbol,
 
+            "data_status": (
+                "SUCCESS"
+            ),
+
+            "timeframe_used": (
+                timeframe_used
+            ),
+
+            "bars_used": (
+                available_bars
+            ),
+
+            "diagnostics": (
+                diagnostics
+            ),
+
             "current_price": round(
                 current_price,
                 4,
@@ -963,7 +1427,9 @@ class PreBreakoutEngine:
                 4,
             ),
 
-            "compression": compression,
+            "compression": (
+                compression
+            ),
 
             "compression_ratio": round(
                 float(
@@ -975,9 +1441,15 @@ class PreBreakoutEngine:
             "vwap": round(
                 current_vwap,
                 4,
-            ),
+            )
+            if np.isfinite(
+                current_vwap
+            )
+            else None,
 
-            "above_vwap": above_vwap,
+            "above_vwap": (
+                above_vwap
+            ),
 
             "vwap_reclaimed": (
                 vwap_reclaimed
@@ -1026,10 +1498,6 @@ class PreBreakoutEngine:
 
             "already_broken_out": (
                 already_broken_out
-            ),
-
-            "bars_used": len(
-                dataframe
             ),
 
             "status": "SUCCESS",
@@ -1094,6 +1562,10 @@ class PreBreakoutEngine:
 
             score += 8.0
 
+            reasons.append(
+                "RVOL improving"
+            )
+
         else:
 
             warnings.append(
@@ -1154,7 +1626,7 @@ class PreBreakoutEngine:
             )
 
         # ====================================================
-        # RESISTANCE DISTANCE
+        # RESISTANCE
         # ====================================================
 
         distance = float(
@@ -1208,7 +1680,7 @@ class PreBreakoutEngine:
             score += 10.0
 
             reasons.append(
-                "Resistance already being tested/broken"
+                "Resistance is being tested/broken"
             )
 
         else:
@@ -1427,10 +1899,6 @@ class PreBreakoutEngine:
             )
         )
 
-        # ====================================================
-        # RULES ONLY
-        # ====================================================
-
         if ml_probability is None:
 
             final_score = (
@@ -1440,10 +1908,6 @@ class PreBreakoutEngine:
             model_source = (
                 "RULES_ONLY"
             )
-
-        # ====================================================
-        # REAL ML BLEND
-        # ====================================================
 
         else:
 
@@ -1482,10 +1946,6 @@ class PreBreakoutEngine:
             2,
         )
 
-        # ====================================================
-        # RESEARCH STATUS
-        # ====================================================
-
         status = "WATCH"
 
         if final_score >= 82:
@@ -1496,19 +1956,14 @@ class PreBreakoutEngine:
 
         elif final_score >= 70:
 
-            status = (
-                "CONFIRMED"
-            )
+            status = "CONFIRMED"
 
         elif final_score >= 55:
 
-            status = (
-                "SETUP"
-            )
+            status = "SETUP"
 
         ready = bool(
-            final_score
-            >= 70
+            final_score >= 70
         )
 
         return {
@@ -1538,7 +1993,7 @@ class PreBreakoutEngine:
         }
 
     # ========================================================
-    # ANALYZE ONE SYMBOL
+    # ANALYZE SYMBOL
     # ========================================================
 
     def analyze_symbol(
@@ -1546,18 +2001,22 @@ class PreBreakoutEngine:
         symbol: str,
     ) -> PreBreakoutResult:
 
-        symbol = str(
-            symbol
-            or ""
-        ).strip().upper()
+        try:
 
-        if not symbol:
+            symbol = (
+                self._normalize_symbol(
+                    symbol
+                )
+            )
+
+        except Exception as exc:
 
             return PreBreakoutResult(
                 symbol="",
                 status="ERROR",
-                error=(
-                    "Symbol cannot be empty."
+                data_status="INVALID_SYMBOL",
+                error=str(
+                    exc
                 ),
             )
 
@@ -1569,10 +2028,10 @@ class PreBreakoutEngine:
                 )
             )
 
-        except Exception as exc:
+        except PreBreakoutDataError as exc:
 
-            logger.warning(
-                "PreBreakout metrics failed "
+            logger.info(
+                "PreBreakout data unavailable "
                 "for %s: %s",
                 symbol,
                 exc,
@@ -1581,12 +2040,44 @@ class PreBreakoutEngine:
             return PreBreakoutResult(
                 symbol=symbol,
 
-                status="DATA_ERROR",
+                status=exc.status,
+
+                data_status=exc.status,
 
                 ready=False,
 
                 warnings=[
                     "MARKET_DATA_UNAVAILABLE"
+                ],
+
+                diagnostics=list(
+                    exc.diagnostics
+                ),
+
+                error=str(
+                    exc
+                ),
+            )
+
+        except Exception as exc:
+
+            logger.exception(
+                "Unexpected PreBreakout error "
+                "for %s",
+                symbol,
+            )
+
+            return PreBreakoutResult(
+                symbol=symbol,
+
+                status="DATA_ERROR",
+
+                data_status="DATA_ERROR",
+
+                ready=False,
+
+                warnings=[
+                    "MARKET_DATA_ERROR"
                 ],
 
                 error=str(
@@ -1631,6 +2122,27 @@ class PreBreakoutEngine:
                 evaluation[
                     "ml_probability"
                 ]
+            ),
+
+            data_status=str(
+                metrics.get(
+                    "data_status",
+                    "SUCCESS",
+                )
+            ),
+
+            timeframe_used=(
+                metrics.get(
+                    "timeframe_used"
+                )
+            ),
+
+            bars_used=int(
+                metrics.get(
+                    "bars_used",
+                    0,
+                )
+                or 0
             ),
 
             rvol=metrics.get(
@@ -1721,11 +2233,18 @@ class PreBreakoutEngine:
                 metrics
             ),
 
+            diagnostics=list(
+                metrics.get(
+                    "diagnostics",
+                    [],
+                )
+            ),
+
             error=None,
         )
 
     # ========================================================
-    # ANALYZE MANY SYMBOLS
+    # ANALYZE MANY
     # ========================================================
 
     def analyze_symbols(
@@ -1742,13 +2261,13 @@ class PreBreakoutEngine:
 
         seen: set[str] = set()
 
-        for symbol in (
+        for raw_symbol in (
             symbols
             or []
         ):
 
             symbol = str(
-                symbol
+                raw_symbol
                 or ""
             ).strip().upper()
 
@@ -1769,6 +2288,18 @@ class PreBreakoutEngine:
                     symbol
                 )
             )
+
+            # ------------------------------------------------
+            # Only genuine valid market-data results
+            # can enter ranking.
+            # ------------------------------------------------
+
+            if (
+                result.data_status
+                != "SUCCESS"
+            ):
+
+                continue
 
             if (
                 result.error
@@ -1793,7 +2324,11 @@ class PreBreakoutEngine:
 
         results.sort(
             key=lambda item: (
-                item.score
+                item.score,
+                item.rvol
+                if item.rvol
+                is not None
+                else 0.0,
             ),
             reverse=True,
         )
@@ -1806,6 +2341,88 @@ class PreBreakoutEngine:
                 ),
             )
         ]
+
+    # ========================================================
+    # DATA AVAILABILITY TEST
+    # ========================================================
+
+    def test_data_availability(
+        self,
+        symbols: list[str],
+    ) -> dict[str, Any]:
+
+        summary = {
+            "total": 0,
+            "success": 0,
+            "unavailable": 0,
+            "by_status": {},
+            "timeframes": {},
+        }
+
+        for symbol in (
+            symbols
+            or []
+        ):
+
+            summary[
+                "total"
+            ] += 1
+
+            result = (
+                self.analyze_symbol(
+                    symbol
+                )
+            )
+
+            status = (
+                result.data_status
+            )
+
+            summary[
+                "by_status"
+            ][status] = (
+                summary[
+                    "by_status"
+                ].get(
+                    status,
+                    0,
+                )
+                +
+                1
+            )
+
+            if status == "SUCCESS":
+
+                summary[
+                    "success"
+                ] += 1
+
+                timeframe = (
+                    result.timeframe_used
+                    or
+                    "UNKNOWN"
+                )
+
+                summary[
+                    "timeframes"
+                ][timeframe] = (
+                    summary[
+                        "timeframes"
+                    ].get(
+                        timeframe,
+                        0,
+                    )
+                    +
+                    1
+                )
+
+            else:
+
+                summary[
+                    "unavailable"
+                ] += 1
+
+        return summary
 
     # ========================================================
     # HEALTH CHECK
@@ -1838,11 +2455,17 @@ class PreBreakoutEngine:
                 self.min_training_samples
             ),
 
-            "feature_count": (
-                len(
-                    self.FEATURE_NAMES
-                )
+            "feature_count": len(
+                self.FEATURE_NAMES
             ),
+
+            "market_data_fallback": [
+                item[
+                    "timeframe"
+                ]
+                for item
+                in self.TIMEFRAME_CANDIDATES
+            ],
 
             "role": (
                 "PRE_BREAKOUT_RESEARCH_ONLY"
