@@ -2,149 +2,364 @@ from __future__ import annotations
 
 import logging
 import os
+
 from datetime import datetime, timezone
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Iterable, Optional
 
 import requests
 
+from dotenv import load_dotenv
+
+
+# ============================================================
+# PATH / ENV
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+
+ENV_FILE = BASE_DIR / ".env"
+
+load_dotenv(ENV_FILE)
+
+
+# ============================================================
+# LOGGING
+# ============================================================
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# NEWS ENGINE
+# NEWS ENGINE V3
 # APEX -> RESEARCH PROVIDER FOR JALWE
 # ============================================================
 
 class NewsEngine:
     """
-    APEX News Engine V2
+    APEX NEWS ENGINE V3
 
     ROLE:
-        Collect and analyze news only.
+        Collect and analyze news for research.
 
-    It does NOT:
-        - buy
-        - sell
-        - submit broker orders
-        - tell JALWE to execute
+    PIPELINE:
 
-    Output can later be consumed by JALWE as one
-    research input among many.
+        Ranked Radar
+            ↓
+        Multi-Timeframe PreBreakout
+            ↓
+        News Engine V3
+            ↓
+        Liquidity / AI
+            ↓
+        Research Packet
+            ↓
+        JALWE
+
+    IMPORTANT:
+
+        This engine NEVER:
+            - buys
+            - sells
+            - submits orders
+            - manages positions
+            - forces JALWE to trade
+
+        News is only one research input.
     """
 
     NEWS_URL = (
         "https://data.alpaca.markets/v1beta1/news"
     )
 
+    DEFAULT_LIMIT = 12
+
+    DEFAULT_MAX_AGE_HOURS = 72.0
+
+    REQUEST_TIMEOUT_SECONDS = 8
+
+
     # ========================================================
-    # KEYWORD GROUPS
+    # POSITIVE LANGUAGE
     # ========================================================
 
     POSITIVE_KEYWORDS = {
-        "growth": 0.15,
+
         "beat": 0.20,
         "beats": 0.20,
+        "beats estimates": 0.30,
+
+        "growth": 0.15,
+
         "upgrade": 0.20,
         "upgraded": 0.20,
-        "partnership": 0.20,
-        "approval": 0.25,
+
+        "approval": 0.30,
         "approved": 0.25,
-        "record": 0.15,
+        "fda approval": 0.40,
+
+        "partnership": 0.20,
+        "strategic partnership": 0.25,
+
+        "contract": 0.18,
+        "awarded contract": 0.25,
+
+        "record revenue": 0.25,
+        "record sales": 0.25,
+
         "profit": 0.15,
-        "profits": 0.15,
-        "surge": 0.15,
-        "strong": 0.10,
-        "contract": 0.15,
+        "profitable": 0.18,
+
+        "raises guidance": 0.35,
+        "raised guidance": 0.35,
+
+        "positive guidance": 0.30,
+
         "acquisition": 0.15,
+        "acquire": 0.15,
+
+        "merger": 0.15,
+
         "launch": 0.10,
         "expansion": 0.10,
-        "raises guidance": 0.30,
-        "raised guidance": 0.30,
+
+        "surge": 0.12,
+
+        "strong demand": 0.20,
+
+        "breakthrough": 0.20,
+
+        "milestone": 0.15,
     }
 
+
+    # ========================================================
+    # NEGATIVE LANGUAGE
+    # ========================================================
+
     NEGATIVE_KEYWORDS = {
+
         "miss": -0.20,
         "misses": -0.20,
-        "lawsuit": -0.25,
+        "missed estimates": -0.30,
+
         "downgrade": -0.20,
         "downgraded": -0.20,
+
+        "lawsuit": -0.25,
+        "litigation": -0.20,
+
         "investigation": -0.25,
+
         "loss": -0.15,
         "losses": -0.15,
-        "recall": -0.25,
-        "fraud": -0.35,
-        "bankruptcy": -0.50,
-        "offering": -0.20,
-        "dilution": -0.30,
-        "cuts guidance": -0.30,
-        "cut guidance": -0.30,
+
+        "recall": -0.30,
+
+        "fraud": -0.40,
+
+        "bankruptcy": -0.60,
+
+        "offering": -0.25,
+
+        "public offering": -0.30,
+
+        "registered direct": -0.30,
+
+        "registered direct offering": -0.35,
+
+        "dilution": -0.35,
+
+        "warrant": -0.15,
+        "warrants": -0.15,
+
+        "shelf offering": -0.35,
+
+        "at-the-market": -0.25,
+        "atm offering": -0.25,
+
+        "reverse split": -0.35,
+
+        "delisting": -0.45,
+
+        "nasdaq deficiency": -0.35,
+
+        "noncompliance": -0.30,
+
+        "cuts guidance": -0.35,
+        "cut guidance": -0.35,
+
         "warning": -0.15,
+
+        "weak demand": -0.20,
+
         "weak": -0.10,
     }
 
-    HIGH_IMPACT_KEYWORDS = {
+
+    # ========================================================
+    # CATALYSTS
+    # ========================================================
+
+    CATALYST_KEYWORDS = {
+
         "fda": "FDA",
+
         "approval": "APPROVAL",
+
         "earnings": "EARNINGS",
+
         "guidance": "GUIDANCE",
+
         "acquisition": "M&A",
+
         "acquire": "M&A",
+
         "merger": "M&A",
+
         "contract": "CONTRACT",
+
         "partnership": "PARTNERSHIP",
+
+        "launch": "PRODUCT_LAUNCH",
+
         "lawsuit": "LEGAL",
+
+        "litigation": "LEGAL",
+
         "investigation": "LEGAL",
+
         "offering": "OFFERING",
+
+        "registered direct": "OFFERING",
+
+        "dilution": "DILUTION",
+
+        "warrant": "WARRANTS",
+
+        "reverse split": "REVERSE_SPLIT",
+
         "bankruptcy": "BANKRUPTCY",
+
         "recall": "RECALL",
+
+        "delisting": "DELISTING",
+
+        "nasdaq deficiency": "NASDAQ_COMPLIANCE",
     }
+
+
+    # ========================================================
+    # HIGH RISK CATALYSTS
+    # ========================================================
+
+    RISK_CATALYST_FLAGS = {
+
+        "LEGAL":
+            "LEGAL_CATALYST",
+
+        "OFFERING":
+            "DILUTION_OR_OFFERING_RISK",
+
+        "DILUTION":
+            "DILUTION_RISK",
+
+        "WARRANTS":
+            "WARRANT_DILUTION_RISK",
+
+        "BANKRUPTCY":
+            "BANKRUPTCY_RISK",
+
+        "RECALL":
+            "RECALL_RISK",
+
+        "REVERSE_SPLIT":
+            "REVERSE_SPLIT_RISK",
+
+        "DELISTING":
+            "DELISTING_RISK",
+
+        "NASDAQ_COMPLIANCE":
+            "NASDAQ_COMPLIANCE_RISK",
+    }
+
 
     # ========================================================
     # INIT
     # ========================================================
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+    ) -> None:
 
         # ----------------------------------------------------
-        # Compatibility:
-        # old APEX env names + new JALWE env names
+        # Supports both old APEX env names
+        # and newer JALWE env names.
         # ----------------------------------------------------
 
         self.api_key = (
-            os.getenv("APCA_API_KEY_ID")
+
+            os.getenv(
+                "APCA_API_KEY_ID"
+            )
+
             or
-            os.getenv("ALPACA_API_KEY")
+
+            os.getenv(
+                "ALPACA_API_KEY"
+            )
+
             or
+
             ""
         ).strip()
 
         self.api_secret = (
-            os.getenv("APCA_API_SECRET_KEY")
+
+            os.getenv(
+                "APCA_API_SECRET_KEY"
+            )
+
             or
-            os.getenv("ALPACA_SECRET_KEY")
+
+            os.getenv(
+                "ALPACA_SECRET_KEY"
+            )
+
             or
+
             ""
         ).strip()
 
         self.base_url = (
+
             os.getenv(
                 "APCA_API_BASE_URL"
             )
+
             or
+
             os.getenv(
                 "ALPACA_BASE_URL"
             )
+
             or
+
             "https://paper-api.alpaca.markets"
+
         ).strip()
 
         self.news_url = (
             self.NEWS_URL
         )
 
+        self.session = (
+            requests.Session()
+        )
+
+
     # ========================================================
-    # CREDENTIAL STATUS
+    # CREDENTIALS
     # ========================================================
 
     def credentials_ready(
@@ -152,10 +367,14 @@ class NewsEngine:
     ) -> bool:
 
         return bool(
+
             self.api_key
+
             and
+
             self.api_secret
         )
+
 
     # ========================================================
     # HEADERS
@@ -166,13 +385,14 @@ class NewsEngine:
     ) -> dict[str, str]:
 
         return {
-            "APCA-API-KEY-ID": (
-                self.api_key
-            ),
-            "APCA-API-SECRET-KEY": (
-                self.api_secret
-            ),
+
+            "APCA-API-KEY-ID":
+                self.api_key,
+
+            "APCA-API-SECRET-KEY":
+                self.api_secret,
         }
+
 
     # ========================================================
     # NORMALIZE SYMBOL
@@ -184,18 +404,21 @@ class NewsEngine:
     ) -> str:
 
         value = str(
-            symbol or ""
+            symbol
+            or ""
         ).strip().upper()
 
         if not value:
+
             raise ValueError(
                 "Symbol cannot be empty."
             )
 
         return value
 
+
     # ========================================================
-    # PARSE TIME
+    # PARSE DATETIME
     # ========================================================
 
     @staticmethod
@@ -204,6 +427,7 @@ class NewsEngine:
     ) -> Optional[datetime]:
 
         if not value:
+
             return None
 
         try:
@@ -212,10 +436,14 @@ class NewsEngine:
                 value
             ).strip()
 
-            if text.endswith("Z"):
+            if text.endswith(
+                "Z"
+            ):
+
                 text = (
                     text[:-1]
-                    + "+00:00"
+                    +
+                    "+00:00"
                 )
 
             dt = (
@@ -225,17 +453,99 @@ class NewsEngine:
             )
 
             if dt.tzinfo is None:
+
                 dt = dt.replace(
                     tzinfo=timezone.utc
                 )
 
-            return dt
+            return dt.astimezone(
+                timezone.utc
+            )
 
         except Exception:
+
             return None
 
+
     # ========================================================
-    # SENTIMENT FOR ONE HEADLINE
+    # NEWS AGE
+    # ========================================================
+
+    @staticmethod
+    def _age_hours(
+        created_at: Optional[
+            datetime
+        ],
+    ) -> Optional[float]:
+
+        if created_at is None:
+
+            return None
+
+        now = datetime.now(
+            timezone.utc
+        )
+
+        try:
+
+            age = (
+                now
+                -
+                created_at
+            ).total_seconds() / 3600.0
+
+        except Exception:
+
+            return None
+
+        return max(
+            0.0,
+            float(age),
+        )
+
+
+    # ========================================================
+    # RECENCY WEIGHT
+    # ========================================================
+
+    @staticmethod
+    def _recency_weight(
+        age_hours: Optional[float],
+    ) -> float:
+
+        if age_hours is None:
+
+            return 0.35
+
+        if age_hours <= 2:
+
+            return 1.00
+
+        if age_hours <= 6:
+
+            return 0.95
+
+        if age_hours <= 12:
+
+            return 0.85
+
+        if age_hours <= 24:
+
+            return 0.70
+
+        if age_hours <= 48:
+
+            return 0.50
+
+        if age_hours <= 72:
+
+            return 0.35
+
+        return 0.15
+
+
+    # ========================================================
+    # TEXT SENTIMENT
     # ========================================================
 
     def _score_text(
@@ -243,8 +553,9 @@ class NewsEngine:
         text: str,
     ) -> float:
 
-        text = str(
-            text or ""
+        normalized = str(
+            text
+            or ""
         ).lower()
 
         score = 0.0
@@ -253,31 +564,36 @@ class NewsEngine:
             keyword,
             weight,
         ) in (
-            self.POSITIVE_KEYWORDS
-            .items()
+            self.POSITIVE_KEYWORDS.items()
         ):
 
-            if keyword in text:
-                score += weight
+            if keyword in normalized:
+
+                score += (
+                    weight
+                )
 
         for (
             keyword,
             weight,
         ) in (
-            self.NEGATIVE_KEYWORDS
-            .items()
+            self.NEGATIVE_KEYWORDS.items()
         ):
 
-            if keyword in text:
-                score += weight
+            if keyword in normalized:
+
+                score += (
+                    weight
+                )
 
         return max(
             -1.0,
             min(
-                score,
+                float(score),
                 1.0,
             ),
         )
+
 
     # ========================================================
     # CATALYST DETECTION
@@ -288,8 +604,9 @@ class NewsEngine:
         text: str,
     ) -> list[str]:
 
-        text = str(
-            text or ""
+        normalized = str(
+            text
+            or ""
         ).lower()
 
         catalysts: list[str] = []
@@ -298,20 +615,23 @@ class NewsEngine:
             keyword,
             catalyst,
         ) in (
-            self.HIGH_IMPACT_KEYWORDS
-            .items()
+            self.CATALYST_KEYWORDS.items()
         ):
 
             if (
-                keyword in text
+                keyword in normalized
+
                 and
+
                 catalyst not in catalysts
             ):
+
                 catalysts.append(
                     catalyst
                 )
 
         return catalysts
+
 
     # ========================================================
     # SENTIMENT LABEL
@@ -323,52 +643,192 @@ class NewsEngine:
     ) -> str:
 
         if score >= 0.20:
+
             return "BULLISH"
 
         if score <= -0.20:
+
             return "BEARISH"
 
-        if (
-            -0.20
-            < score
-            < 0.20
-        ):
-            return "NEUTRAL"
+        return "NEUTRAL"
 
-        return "UNKNOWN"
 
     # ========================================================
-    # NEWS SCORE 0 -> 100
+    # EMPTY / ERROR RESPONSE
+    # ========================================================
+
+    @staticmethod
+    def _empty_result(
+        symbol: str,
+        *,
+        status: str,
+        risk_flags: Optional[
+            list[str]
+        ] = None,
+        error: Optional[str] = None,
+    ) -> dict[str, Any]:
+
+        result = {
+
+            "symbol":
+                symbol,
+
+            "sentiment_score":
+                None,
+
+            "sentiment":
+                "UNKNOWN",
+
+            "news_score":
+                None,
+
+            "confidence":
+                0.0,
+
+            "catalyst_detected":
+                False,
+
+            "catalysts":
+                [],
+
+            "news_count":
+                0,
+
+            "recent_news_count":
+                0,
+
+            "fresh_news_count":
+                0,
+
+            "stale_news_count":
+                0,
+
+            "headlines":
+                [],
+
+            "articles":
+                [],
+
+            "positive_items":
+                0,
+
+            "negative_items":
+                0,
+
+            "neutral_items":
+                0,
+
+            "risk_flags":
+                list(
+                    risk_flags
+                    or []
+                ),
+
+            "latest_news_at":
+                None,
+
+            "latest_news_age_hours":
+                None,
+
+            "status":
+                status,
+        }
+
+        if error:
+
+            result[
+                "error"
+            ] = str(
+                error
+            )
+
+        return result
+
+
+    # ========================================================
+    # NEWS SCORE
     # ========================================================
 
     @staticmethod
     def _news_score(
+        *,
         sentiment_score: float,
-        news_count: int,
-        catalyst_count: int,
+        recent_news_count: int,
+        fresh_news_count: int,
+        risk_flags: list[str],
     ) -> float:
 
-        # Neutral baseline = 50
+        # ----------------------------------------------------
+        # Actual valid news only.
+        # 50 = neutral news sentiment.
+        # ----------------------------------------------------
+
         score = (
+
             50.0
+
             +
-            sentiment_score
-            * 35.0
+
+            (
+                sentiment_score
+                *
+                38.0
+            )
         )
 
-        # Activity bonus
+        # ----------------------------------------------------
+        # Small activity bonus.
+        # This is intentionally small:
+        # volume of headlines is not automatically bullish.
+        # ----------------------------------------------------
+
         score += min(
-            news_count * 2.0,
-            8.0,
+            recent_news_count
+            *
+            1.0,
+            5.0,
         )
 
-        # Catalyst bonus
         score += min(
-            catalyst_count * 3.0,
-            12.0,
+            fresh_news_count
+            *
+            0.75,
+            3.0,
         )
+
+        # ----------------------------------------------------
+        # Risk penalties.
+        # ----------------------------------------------------
+
+        serious_flags = {
+
+            "BANKRUPTCY_RISK",
+            "DELISTING_RISK",
+            "DILUTION_RISK",
+            "DILUTION_OR_OFFERING_RISK",
+            "REVERSE_SPLIT_RISK",
+        }
+
+        moderate_flags = {
+
+            "LEGAL_CATALYST",
+            "RECALL_RISK",
+            "WARRANT_DILUTION_RISK",
+            "NASDAQ_COMPLIANCE_RISK",
+        }
+
+        for flag in risk_flags:
+
+            if flag in serious_flags:
+
+                score -= 10.0
+
+            elif flag in moderate_flags:
+
+                score -= 5.0
 
         return round(
+
             max(
                 0.0,
                 min(
@@ -376,8 +836,10 @@ class NewsEngine:
                     100.0,
                 ),
             ),
+
             2,
         )
+
 
     # ========================================================
     # CONFIDENCE
@@ -387,45 +849,77 @@ class NewsEngine:
     def _confidence(
         *,
         news_count: int,
+        fresh_news_count: int,
         scored_items: int,
         catalyst_count: int,
     ) -> float:
 
         if news_count <= 0:
+
             return 0.0
 
-        coverage = (
+        scored_coverage = (
+
             scored_items
             /
             news_count
         )
 
+        freshness_ratio = (
+
+            fresh_news_count
+            /
+            news_count
+        )
+
         confidence = (
-            0.30
+
+            0.20
+
             +
+
             min(
                 news_count,
-                5,
+                8,
             )
-            * 0.08
+            *
+            0.05
+
             +
-            coverage
-            * 0.20
+
+            scored_coverage
+            *
+            0.18
+
             +
+
+            freshness_ratio
+            *
+            0.12
+
+            +
+
             min(
                 catalyst_count,
                 3,
             )
-            * 0.05
+            *
+            0.04
         )
 
         return round(
+
             min(
-                confidence,
+                max(
+                    confidence,
+                    0.0,
+                ),
                 0.95,
             ),
+
             3,
         )
+
 
     # ========================================================
     # FETCH SYMBOL NEWS
@@ -435,7 +929,10 @@ class NewsEngine:
         self,
         symbol: str,
         *,
-        limit: int = 10,
+        limit: int = DEFAULT_LIMIT,
+        max_age_hours: float = (
+            DEFAULT_MAX_AGE_HOURS
+        ),
     ) -> dict[str, Any]:
 
         symbol = (
@@ -445,112 +942,134 @@ class NewsEngine:
         )
 
         # ----------------------------------------------------
-        # Missing credentials
+        # CREDENTIAL CHECK
         # ----------------------------------------------------
 
         if not self.credentials_ready():
 
-            return {
-                "symbol": symbol,
-                "sentiment_score": None,
-                "sentiment": "UNKNOWN",
-                "news_score": None,
-                "confidence": 0.0,
-                "catalyst_detected": False,
-                "catalysts": [],
-                "news_count": 0,
-                "headlines": [],
-                "risk_flags": [
-                    "NEWS_CREDENTIALS_MISSING"
-                ],
-                "latest_news_at": None,
-                "status": (
-                    "CREDENTIALS_MISSING"
-                ),
-            }
+            return (
+                self._empty_result(
+
+                    symbol,
+
+                    status=(
+                        "CREDENTIALS_MISSING"
+                    ),
+
+                    risk_flags=[
+                        "NEWS_CREDENTIALS_MISSING"
+                    ],
+                )
+            )
+
+        # ----------------------------------------------------
+        # REQUEST
+        # ----------------------------------------------------
 
         params = {
-            "symbols": symbol,
-            "limit": max(
-                1,
-                min(
-                    int(limit),
-                    50,
+
+            "symbols":
+                symbol,
+
+            "limit":
+                max(
+                    1,
+                    min(
+                        int(limit),
+                        50,
+                    ),
                 ),
-            ),
-            "sort": "desc",
+
+            "sort":
+                "desc",
         }
 
         try:
 
-            response = requests.get(
-                self.news_url,
-                headers=self._headers(),
-                params=params,
-                timeout=8,
+            response = (
+                self.session.get(
+
+                    self.news_url,
+
+                    headers=(
+                        self._headers()
+                    ),
+
+                    params=params,
+
+                    timeout=(
+                        self.REQUEST_TIMEOUT_SECONDS
+                    ),
+                )
             )
 
         except requests.RequestException as exc:
 
             logger.warning(
-                "News request failed for %s: %s",
+
+                "News request failed "
+                "for %s: %s",
+
                 symbol,
+
                 exc,
             )
 
-            return {
-                "symbol": symbol,
-                "sentiment_score": None,
-                "sentiment": "UNKNOWN",
-                "news_score": None,
-                "confidence": 0.0,
-                "catalyst_detected": False,
-                "catalysts": [],
-                "news_count": 0,
-                "headlines": [],
-                "risk_flags": [
-                    "NEWS_API_UNAVAILABLE"
-                ],
-                "latest_news_at": None,
-                "status": (
-                    "API_ERROR"
-                ),
-            }
+            return (
+                self._empty_result(
+
+                    symbol,
+
+                    status="API_ERROR",
+
+                    risk_flags=[
+                        "NEWS_API_UNAVAILABLE"
+                    ],
+
+                    error=str(
+                        exc
+                    ),
+                )
+            )
 
         # ----------------------------------------------------
-        # HTTP error
+        # HTTP STATUS
         # ----------------------------------------------------
 
         if response.status_code != 200:
 
             logger.warning(
-                "News API returned HTTP %s "
-                "for %s",
+
+                "News API HTTP %s for %s",
+
                 response.status_code,
+
                 symbol,
             )
 
-            return {
-                "symbol": symbol,
-                "sentiment_score": None,
-                "sentiment": "UNKNOWN",
-                "news_score": None,
-                "confidence": 0.0,
-                "catalyst_detected": False,
-                "catalysts": [],
-                "news_count": 0,
-                "headlines": [],
-                "risk_flags": [
-                    (
+            return (
+                self._empty_result(
+
+                    symbol,
+
+                    status="HTTP_ERROR",
+
+                    risk_flags=[
+
                         "NEWS_HTTP_"
-                        + str(
+                        +
+                        str(
                             response.status_code
                         )
-                    )
-                ],
-                "latest_news_at": None,
-                "status": "HTTP_ERROR",
-            }
+                    ],
+
+                    error=(
+                        response.text[:300]
+                        if response.text
+                        else None
+                    ),
+                )
+            )
 
         # ----------------------------------------------------
         # JSON
@@ -558,63 +1077,79 @@ class NewsEngine:
 
         try:
 
-            data = response.json()
+            data = (
+                response.json()
+            )
 
-        except ValueError:
+        except ValueError as exc:
 
-            return {
-                "symbol": symbol,
-                "sentiment_score": None,
-                "sentiment": "UNKNOWN",
-                "news_score": None,
-                "confidence": 0.0,
-                "catalyst_detected": False,
-                "catalysts": [],
-                "news_count": 0,
-                "headlines": [],
-                "risk_flags": [
-                    "NEWS_INVALID_JSON"
-                ],
-                "latest_news_at": None,
-                "status": "INVALID_JSON",
-            }
+            return (
+                self._empty_result(
+
+                    symbol,
+
+                    status="INVALID_JSON",
+
+                    risk_flags=[
+                        "NEWS_INVALID_JSON"
+                    ],
+
+                    error=str(
+                        exc
+                    ),
+                )
+            )
 
         news_items = (
+
             data.get(
                 "news",
                 []
             )
-            or []
+
+            or
+
+            []
         )
 
         # ----------------------------------------------------
-        # Valid API response, but no news
+        # VALID API - NO NEWS
+        #
+        # IMPORTANT:
+        # No news != neutral news.
         # ----------------------------------------------------
 
         if not news_items:
 
-            return {
-                "symbol": symbol,
-                "sentiment_score": 0.0,
-                "sentiment": "NEUTRAL",
-                "news_score": 50.0,
-                "confidence": 0.0,
-                "catalyst_detected": False,
-                "catalysts": [],
-                "news_count": 0,
-                "headlines": [],
-                "risk_flags": [],
-                "latest_news_at": None,
-                "status": "NO_NEWS",
-            }
+            return (
+                self._empty_result(
+
+                    symbol,
+
+                    status="NO_NEWS",
+
+                    risk_flags=[
+                        "NO_RECENT_NEWS"
+                    ],
+                )
+            )
 
         # ----------------------------------------------------
-        # Analyze items
+        # ANALYSIS COLLECTIONS
         # ----------------------------------------------------
 
-        scores: list[float] = []
+        weighted_scores: list[
+            tuple[
+                float,
+                float,
+            ]
+        ] = []
 
         headlines: list[str] = []
+
+        articles: list[
+            dict[str, Any]
+        ] = []
 
         catalysts: list[str] = []
 
@@ -622,56 +1157,179 @@ class NewsEngine:
             datetime
         ] = None
 
+        latest_age_hours: Optional[
+            float
+        ] = None
+
         positive_items = 0
+
         negative_items = 0
+
+        neutral_items = 0
+
         scored_items = 0
+
+        recent_news_count = 0
+
+        fresh_news_count = 0
+
+        stale_news_count = 0
+
+
+        # ====================================================
+        # ANALYZE EACH NEWS ITEM
+        # ====================================================
 
         for item in news_items:
 
             headline = str(
+
                 item.get(
                     "headline",
                     "",
                 )
-                or ""
+
+                or
+
+                ""
+
             ).strip()
 
             summary = str(
+
                 item.get(
                     "summary",
                     "",
                 )
-                or ""
+
+                or
+
+                ""
+
             ).strip()
 
-            combined_text = (
-                headline
-                + " "
-                + summary
-            )
+            source = str(
 
-            if headline:
-                headlines.append(
-                    headline
+                item.get(
+                    "source",
+                    "",
                 )
 
-            item_score = (
+                or
+
+                ""
+
+            ).strip()
+
+            created_at = (
+                self._parse_time(
+
+                    item.get(
+                        "created_at"
+                    )
+
+                    or
+
+                    item.get(
+                        "updated_at"
+                    )
+                )
+            )
+
+            age_hours = (
+                self._age_hours(
+                    created_at
+                )
+            )
+
+            # ------------------------------------------------
+            # Keep very old stories from dominating.
+            # ------------------------------------------------
+
+            if (
+                age_hours is not None
+
+                and
+
+                age_hours
+                >
+                float(
+                    max_age_hours
+                )
+            ):
+
+                stale_news_count += 1
+
+                continue
+
+            recent_news_count += 1
+
+            if (
+                age_hours is not None
+
+                and
+
+                age_hours <= 24
+            ):
+
+                fresh_news_count += 1
+
+            combined_text = (
+
+                headline
+
+                +
+
+                " "
+
+                +
+
+                summary
+            )
+
+            raw_score = (
                 self._score_text(
                     combined_text
                 )
             )
 
-            scores.append(
-                item_score
+            recency_weight = (
+                self._recency_weight(
+                    age_hours
+                )
             )
 
-            if item_score > 0:
+            weighted_scores.append(
+
+                (
+                    raw_score,
+                    recency_weight,
+                )
+            )
+
+            # ------------------------------------------------
+            # Sentiment counters
+            # ------------------------------------------------
+
+            if raw_score > 0:
+
                 positive_items += 1
+
                 scored_items += 1
 
-            elif item_score < 0:
+            elif raw_score < 0:
+
                 negative_items += 1
+
                 scored_items += 1
+
+            else:
+
+                neutral_items += 1
+
+            # ------------------------------------------------
+            # Catalysts
+            # ------------------------------------------------
 
             item_catalysts = (
                 self._detect_catalysts(
@@ -684,59 +1342,169 @@ class NewsEngine:
             ):
 
                 if catalyst not in catalysts:
+
                     catalysts.append(
                         catalyst
                     )
 
-            created_at = (
-                self._parse_time(
-                    item.get(
-                        "created_at"
-                    )
-                    or
-                    item.get(
-                        "updated_at"
-                    )
-                )
-            )
+            # ------------------------------------------------
+            # Latest article
+            # ------------------------------------------------
 
             if created_at is not None:
 
                 if (
-                    latest_news_time
-                    is None
+                    latest_news_time is None
+
                     or
+
                     created_at
                     >
                     latest_news_time
                 ):
+
                     latest_news_time = (
                         created_at
                     )
 
-        # ----------------------------------------------------
-        # Aggregate sentiment
-        # ----------------------------------------------------
+                    latest_age_hours = (
+                        age_hours
+                    )
 
-        if scores:
+            if headline:
+
+                headlines.append(
+                    headline
+                )
+
+            articles.append({
+
+                "headline":
+                    headline,
+
+                "summary":
+                    summary,
+
+                "source":
+                    source,
+
+                "created_at":
+                    (
+                        created_at.isoformat()
+
+                        if created_at
+
+                        else None
+                    ),
+
+                "age_hours":
+                    (
+                        round(
+                            age_hours,
+                            2,
+                        )
+
+                        if age_hours
+                        is not None
+
+                        else None
+                    ),
+
+                "sentiment_score":
+                    round(
+                        raw_score,
+                        4,
+                    ),
+
+                "recency_weight":
+                    round(
+                        recency_weight,
+                        3,
+                    ),
+
+                "catalysts":
+                    item_catalysts,
+            })
+
+
+        # ====================================================
+        # NO RECENT NEWS AFTER AGE FILTER
+        # ====================================================
+
+        if recent_news_count <= 0:
+
+            result = (
+                self._empty_result(
+
+                    symbol,
+
+                    status="NO_RECENT_NEWS",
+
+                    risk_flags=[
+                        "NO_RECENT_NEWS"
+                    ],
+                )
+            )
+
+            result[
+                "stale_news_count"
+            ] = stale_news_count
+
+            return result
+
+
+        # ====================================================
+        # WEIGHTED SENTIMENT
+        # ====================================================
+
+        total_weight = sum(
+
+            weight
+
+            for (
+                _,
+                weight,
+            ) in weighted_scores
+        )
+
+        if total_weight > 0:
 
             sentiment_score = (
-                sum(scores)
+
+                sum(
+
+                    score
+                    *
+                    weight
+
+                    for (
+                        score,
+                        weight,
+                    )
+                    in weighted_scores
+                )
+
                 /
-                len(scores)
+
+                total_weight
             )
 
         else:
+
             sentiment_score = 0.0
 
         sentiment_score = round(
+
             max(
                 -1.0,
                 min(
-                    sentiment_score,
+                    float(
+                        sentiment_score
+                    ),
                     1.0,
                 ),
             ),
+
             4,
         )
 
@@ -746,126 +1514,420 @@ class NewsEngine:
             )
         )
 
-        news_count = len(
-            news_items
-        )
 
-        news_score = (
-            self._news_score(
-                sentiment_score,
-                news_count,
-                len(catalysts),
-            )
-        )
-
-        confidence = (
-            self._confidence(
-                news_count=news_count,
-                scored_items=scored_items,
-                catalyst_count=(
-                    len(catalysts)
-                ),
-            )
-        )
-
-        # ----------------------------------------------------
-        # Risk flags
-        # ----------------------------------------------------
+        # ====================================================
+        # RISK FLAGS
+        # ====================================================
 
         risk_flags: list[str] = []
 
-        if negative_items > positive_items:
+        if (
+            negative_items
+            >
+            positive_items
+        ):
+
             risk_flags.append(
                 "NEGATIVE_NEWS_DOMINANCE"
             )
 
-        if "LEGAL" in catalysts:
-            risk_flags.append(
-                "LEGAL_CATALYST"
+        for catalyst in catalysts:
+
+            risk_flag = (
+                self.RISK_CATALYST_FLAGS.get(
+                    catalyst
+                )
             )
 
-        if "OFFERING" in catalysts:
-            risk_flags.append(
-                "DILUTION_OR_OFFERING_RISK"
+            if (
+                risk_flag
+
+                and
+
+                risk_flag
+                not in risk_flags
+            ):
+
+                risk_flags.append(
+                    risk_flag
+                )
+
+
+        # ====================================================
+        # SCORE
+        # ====================================================
+
+        news_score = (
+            self._news_score(
+
+                sentiment_score=(
+                    sentiment_score
+                ),
+
+                recent_news_count=(
+                    recent_news_count
+                ),
+
+                fresh_news_count=(
+                    fresh_news_count
+                ),
+
+                risk_flags=(
+                    risk_flags
+                ),
+            )
+        )
+
+
+        # ====================================================
+        # CONFIDENCE
+        # ====================================================
+
+        confidence = (
+            self._confidence(
+
+                news_count=(
+                    recent_news_count
+                ),
+
+                fresh_news_count=(
+                    fresh_news_count
+                ),
+
+                scored_items=(
+                    scored_items
+                ),
+
+                catalyst_count=(
+                    len(
+                        catalysts
+                    )
+                ),
+            )
+        )
+
+
+        # ====================================================
+        # RESULT
+        # ====================================================
+
+        return {
+
+            "symbol":
+                symbol,
+
+            "sentiment_score":
+                float(
+                    sentiment_score
+                ),
+
+            "sentiment":
+                sentiment,
+
+            "news_score":
+                float(
+                    news_score
+                ),
+
+            "confidence":
+                float(
+                    confidence
+                ),
+
+            "catalyst_detected":
+                bool(
+                    catalysts
+                ),
+
+            "catalysts":
+                catalysts,
+
+            "news_count":
+                int(
+                    recent_news_count
+                ),
+
+            "recent_news_count":
+                int(
+                    recent_news_count
+                ),
+
+            "fresh_news_count":
+                int(
+                    fresh_news_count
+                ),
+
+            "stale_news_count":
+                int(
+                    stale_news_count
+                ),
+
+            "headlines":
+                headlines[:10],
+
+            "articles":
+                articles[:10],
+
+            "positive_items":
+                int(
+                    positive_items
+                ),
+
+            "negative_items":
+                int(
+                    negative_items
+                ),
+
+            "neutral_items":
+                int(
+                    neutral_items
+                ),
+
+            "risk_flags":
+                risk_flags,
+
+            "latest_news_at":
+                (
+                    latest_news_time
+                    .isoformat()
+
+                    if latest_news_time
+
+                    else None
+                ),
+
+            "latest_news_age_hours":
+                (
+                    round(
+                        latest_age_hours,
+                        2,
+                    )
+
+                    if latest_age_hours
+                    is not None
+
+                    else None
+                ),
+
+            "status":
+                "SUCCESS",
+        }
+
+
+    # ========================================================
+    # EXTRACT SYMBOL FROM CANDIDATE
+    # ========================================================
+
+    @staticmethod
+    def _candidate_symbol(
+        candidate: Any,
+    ) -> Optional[str]:
+
+        if candidate is None:
+
+            return None
+
+        if isinstance(
+            candidate,
+            str,
+        ):
+
+            symbol = (
+                candidate
             )
 
-        if "BANKRUPTCY" in catalysts:
-            risk_flags.append(
-                "BANKRUPTCY_RISK"
+        elif isinstance(
+            candidate,
+            dict,
+        ):
+
+            symbol = (
+                candidate.get(
+                    "symbol"
+                )
             )
 
-        if "RECALL" in catalysts:
-            risk_flags.append(
-                "RECALL_RISK"
+        else:
+
+            symbol = (
+                getattr(
+                    candidate,
+                    "symbol",
+                    None,
+                )
             )
 
-        latest_news_at = (
-            latest_news_time
-            .isoformat()
-            if latest_news_time
-            is not None
+        symbol = str(
+            symbol
+            or ""
+        ).strip().upper()
+
+        return (
+            symbol
+            if symbol
             else None
         )
 
+
+    # ========================================================
+    # ANALYZE MULTIPLE RESEARCH CANDIDATES
+    # ========================================================
+
+    def analyze_candidates(
+        self,
+        candidates: Iterable[Any],
+        *,
+        top_n: int = 10,
+        limit_per_symbol: int = 10,
+        max_age_hours: float = 72.0,
+    ) -> list[
+        dict[str, Any]
+    ]:
+
+        symbols: list[str] = []
+
+        seen: set[str] = set()
+
+        for candidate in (
+            candidates
+            or []
+        ):
+
+            symbol = (
+                self._candidate_symbol(
+                    candidate
+                )
+            )
+
+            if not symbol:
+
+                continue
+
+            if symbol in seen:
+
+                continue
+
+            seen.add(
+                symbol
+            )
+
+            symbols.append(
+                symbol
+            )
+
+            if len(
+                symbols
+            ) >= max(
+                1,
+                int(
+                    top_n
+                ),
+            ):
+
+                break
+
+        results: list[
+            dict[str, Any]
+        ] = []
+
+        for symbol in symbols:
+
+            try:
+
+                result = (
+                    self.fetch_symbol_news(
+
+                        symbol,
+
+                        limit=(
+                            limit_per_symbol
+                        ),
+
+                        max_age_hours=(
+                            max_age_hours
+                        ),
+                    )
+                )
+
+            except Exception as exc:
+
+                logger.exception(
+                    "News analysis failed "
+                    "for %s",
+                    symbol,
+                )
+
+                result = (
+                    self._empty_result(
+
+                        symbol,
+
+                        status="ERROR",
+
+                        risk_flags=[
+                            "NEWS_ENGINE_ERROR"
+                        ],
+
+                        error=str(
+                            exc
+                        ),
+                    )
+                )
+
+            results.append(
+                result
+            )
+
+        return results
+
+
+    # ========================================================
+    # HEALTH CHECK
+    # ========================================================
+
+    def health_check(
+        self,
+    ) -> dict[str, Any]:
+
         return {
-            "symbol": symbol,
 
-            "sentiment_score": (
-                float(
-                    sentiment_score
-                )
-            ),
+            "version":
+                "3.0",
 
-            "sentiment": sentiment,
+            "env_file":
+                str(
+                    ENV_FILE
+                ),
 
-            "news_score": (
-                float(
-                    news_score
-                )
-            ),
+            "env_exists":
+                ENV_FILE.exists(),
 
-            "confidence": (
-                float(
-                    confidence
-                )
-            ),
+            "credentials_present":
+                self.credentials_ready(),
 
-            "catalyst_detected": (
-                bool(catalysts)
-            ),
+            "paper_url":
+                (
+                    "paper-api.alpaca.markets"
+                    in
+                    self.base_url.lower()
+                ),
 
-            "catalysts": catalysts,
+            "news_url":
+                self.news_url,
 
-            "news_count": (
-                news_count
-            ),
+            "default_max_age_hours":
+                self.DEFAULT_MAX_AGE_HOURS,
 
-            "headlines": (
-                headlines[:10]
-            ),
+            "role":
+                "RESEARCH_ONLY",
 
-            "positive_items": (
-                positive_items
-            ),
-
-            "negative_items": (
-                negative_items
-            ),
-
-            "risk_flags": (
-                risk_flags
-            ),
-
-            "latest_news_at": (
-                latest_news_at
-            ),
-
-            "status": "SUCCESS",
+            "order_execution_enabled":
+                False,
         }
 
 
 # ============================================================
-# COMPATIBILITY HELPER
+# LEGACY COMPATIBILITY
 # ============================================================
 
 def analyze_news_catalyst(
@@ -879,8 +1941,7 @@ def analyze_news_catalyst(
         )
 
         return (
-            engine
-            .fetch_symbol_news(
+            engine.fetch_symbol_news(
                 symbol
             )
         )
@@ -893,36 +1954,37 @@ def analyze_news_catalyst(
             symbol,
         )
 
-        return {
-            "symbol": str(
-                symbol or ""
-            ).upper(),
+        return (
+            NewsEngine._empty_result(
 
-            "sentiment_score": None,
+                str(
+                    symbol
+                    or ""
+                ).upper(),
 
-            "sentiment": "UNKNOWN",
+                status="ERROR",
 
-            "news_score": None,
+                risk_flags=[
+                    "NEWS_ENGINE_ERROR"
+                ],
 
-            "confidence": 0.0,
+                error=str(
+                    exc
+                ),
+            )
+        )
 
-            "catalyst_detected": False,
 
-            "catalysts": [],
+# ============================================================
+# STANDALONE
+# ============================================================
 
-            "news_count": 0,
+if __name__ == "__main__":
 
-            "headlines": [],
+    engine = (
+        NewsEngine()
+    )
 
-            "risk_flags": [
-                "NEWS_ENGINE_ERROR"
-            ],
-
-            "latest_news_at": None,
-
-            "status": "ERROR",
-
-            "error": str(
-                exc
-            ),
-        }
+    print(
+        engine.health_check()
+    )
