@@ -66,6 +66,7 @@ class ResearchPacket:
 
     news_score: Optional[float] = None
     news_confidence: Optional[float] = None
+
     news_sentiment: str = "UNKNOWN"
     news_status: str = "UNKNOWN"
 
@@ -83,6 +84,7 @@ class ResearchPacket:
 
     liquidity_score: Optional[float] = None
     liquidity_confidence: Optional[float] = None
+
     liquidity_bias: str = "UNKNOWN"
 
     buy_pressure: Optional[float] = None
@@ -161,6 +163,12 @@ class ResearchCycleResult:
 
     shortlisted_count: int = 0
 
+    published_count: int = 0
+
+    bridge_status: str = "NOT_RUN"
+
+    bridge_error: Optional[str] = None
+
     packets: list[
         ResearchPacket
     ] = field(
@@ -178,6 +186,7 @@ class ResearchCycleResult:
     )
 
     started_at: Optional[str] = None
+
     finished_at: Optional[str] = None
 
 
@@ -187,45 +196,52 @@ class ResearchCycleResult:
 
 class ResearchOrchestrator:
     """
-    APEX RESEARCH ORCHESTRATOR V1
+    APEX RESEARCH ORCHESTRATOR V2
 
     PIPELINE:
 
-        ScannerEngine V3
+        ScannerEngine
             ↓
-        Top Ranked Candidates
+        Ranked Candidates
             ↓
         PreBreakout
         5M + 30M + 1H + 1D
             ↓
         Data Confidence Filter
             ↓
-        Top Deep Research Candidates
+        Best Research Candidates
             ↓
-        NewsEngine V3
+        NewsEngine
             ↓
-        LiquidityEngine V2
+        LiquidityEngine
             ↓
-        AIEngine V3
+        AIEngine
             ↓
         ResearchPacket
             ↓
-        JALWE
+        Shortlist
+            ↓
+        JALWE V4 Research Bridge
 
     IMPORTANT:
 
-        APEX is research-only.
+        APEX = RESEARCH ONLY.
 
         This module NEVER:
+
+            - submits broker orders
             - buys
             - sells
-            - submits orders
             - manages positions
+            - changes JALWE risk
+            - bypasses JALWE DecisionEngine
 
-        JALWE remains the final decision-maker.
+        JALWE independently decides whether
+        the research should be rejected,
+        watched, or considered further.
     """
 
-    VERSION = "1.0"
+    VERSION = "2.0"
 
     DEFAULT_RADAR_TOP_N = 20
 
@@ -258,11 +274,19 @@ class ResearchOrchestrator:
         ] = None,
     ) -> None:
 
+        # ----------------------------------------------------
+        # SCANNER
+        # ----------------------------------------------------
+
         self.scanner = (
             scanner
             or
             ScannerEngine()
         )
+
+        # ----------------------------------------------------
+        # PREBREAKOUT
+        # ----------------------------------------------------
 
         self.prebreakout = (
             prebreakout
@@ -273,11 +297,19 @@ class ResearchOrchestrator:
             )
         )
 
+        # ----------------------------------------------------
+        # NEWS
+        # ----------------------------------------------------
+
         self.news = (
             news
             or
             NewsEngine()
         )
+
+        # ----------------------------------------------------
+        # LIQUIDITY
+        # ----------------------------------------------------
 
         self.liquidity = (
             liquidity
@@ -287,56 +319,102 @@ class ResearchOrchestrator:
             )
         )
 
+        # ----------------------------------------------------
+        # AI RESEARCH AGGREGATOR
+        # ----------------------------------------------------
+
         self.ai = (
             ai
             or
             AIEngine()
         )
 
+        # ----------------------------------------------------
+        # JALWE BRIDGE
+        #
+        # Lazy import intentionally used.
+        #
+        # If JALWE is temporarily unavailable,
+        # Apex research still works.
+        # ----------------------------------------------------
+
+        self.jalwe_bridge = None
+
+        self.jalwe_bridge_error = None
+
+        try:
+
+            from jalwe_bridge_client import (
+                JalweBridgeClient,
+            )
+
+            self.jalwe_bridge = (
+                JalweBridgeClient()
+            )
+
+        except Exception as exc:
+
+            self.jalwe_bridge = None
+
+            self.jalwe_bridge_error = str(
+                exc
+            )
+
+            logger.warning(
+                "JALWE bridge unavailable: %s",
+                exc,
+            )
+
 
     # ========================================================
-    # RADAR MAP
+    # SAFE FLOAT
     # ========================================================
 
     @staticmethod
-    def _radar_map(
-        radar_result: Any,
-    ) -> dict[
-        str,
-        Any,
-    ]:
+    def _float(
+        value: Any,
+        default: float = 0.0,
+    ) -> float:
 
-        output = {}
+        try:
 
-        candidates = getattr(
-            radar_result,
-            "ranked_candidates",
-            [],
-        )
+            if value is None:
 
-        for candidate in candidates:
-
-            symbol = str(
-                getattr(
-                    candidate,
-                    "symbol",
-                    "",
+                return float(
+                    default
                 )
-                or
-                ""
-            ).strip().upper()
 
-            if symbol:
+            return float(
+                value
+            )
 
-                output[
-                    symbol
-                ] = candidate
+        except (
+            TypeError,
+            ValueError,
+        ):
 
-        return output
+            return float(
+                default
+            )
 
 
     # ========================================================
-    # BUILD PACKET
+    # NORMALIZE SYMBOL
+    # ========================================================
+
+    @staticmethod
+    def _symbol(
+        value: Any,
+    ) -> str:
+
+        return str(
+            value
+            or ""
+        ).strip().upper()
+
+
+    # ========================================================
+    # BUILD RESEARCH PACKET
     # ========================================================
 
     def _build_packet(
@@ -349,12 +427,41 @@ class ResearchOrchestrator:
         ai_result: dict[str, Any],
     ) -> ResearchPacket:
 
-        symbol = str(
+        symbol = self._symbol(
             ai_result.get(
                 "symbol",
                 "",
             )
-        ).strip().upper()
+        )
+
+        news_confidence = (
+            self._float(
+                news_result.get(
+                    "confidence",
+                    0.0,
+                )
+            )
+        )
+
+        # NewsEngine confidence is normally 0-1.
+        if news_confidence <= 1.0:
+
+            news_confidence *= 100.0
+
+        liquidity_confidence = (
+            self._float(
+                getattr(
+                    liquidity_result,
+                    "confidence",
+                    0.0,
+                )
+            )
+        )
+
+        # Liquidity confidence is normally 0-1.
+        if liquidity_confidence <= 1.0:
+
+            liquidity_confidence *= 100.0
 
         return ResearchPacket(
 
@@ -363,25 +470,25 @@ class ResearchOrchestrator:
             source="APEX",
 
             # ------------------------------------------------
-            # AI
+            # FINAL APEX AI
             # ------------------------------------------------
 
-            research_score=float(
-                ai_result.get(
-                    "research_score",
-                    0.0,
+            research_score=(
+                self._float(
+                    ai_result.get(
+                        "research_score",
+                        0.0,
+                    )
                 )
-                or
-                0.0
             ),
 
-            confidence=float(
-                ai_result.get(
-                    "confidence",
-                    0.0,
+            confidence=(
+                self._float(
+                    ai_result.get(
+                        "confidence",
+                        0.0,
+                    )
                 )
-                or
-                0.0
             ),
 
             bias=str(
@@ -389,14 +496,18 @@ class ResearchOrchestrator:
                     "bias",
                     "MIXED",
                 )
-            ),
+                or
+                "MIXED"
+            ).upper(),
 
             verdict=str(
                 ai_result.get(
                     "verdict",
                     "REJECT",
                 )
-            ),
+                or
+                "REJECT"
+            ).upper(),
 
             # ------------------------------------------------
             # RADAR
@@ -483,18 +594,7 @@ class ResearchOrchestrator:
             ),
 
             news_confidence=(
-                (
-                    float(
-                        news_result.get(
-                            "confidence",
-                            0.0,
-                        )
-                        or
-                        0.0
-                    )
-                    *
-                    100.0
-                )
+                news_confidence
             ),
 
             news_sentiment=str(
@@ -502,14 +602,18 @@ class ResearchOrchestrator:
                     "sentiment",
                     "UNKNOWN",
                 )
-            ),
+                or
+                "UNKNOWN"
+            ).upper(),
 
             news_status=str(
                 news_result.get(
                     "status",
                     "UNKNOWN",
                 )
-            ),
+                or
+                "UNKNOWN"
+            ).upper(),
 
             catalysts=list(
                 news_result.get(
@@ -540,17 +644,7 @@ class ResearchOrchestrator:
             ),
 
             liquidity_confidence=(
-                float(
-                    getattr(
-                        liquidity_result,
-                        "confidence",
-                        0.0,
-                    )
-                    or
-                    0.0
-                )
-                *
-                100.0
+                liquidity_confidence
             ),
 
             liquidity_bias=str(
@@ -559,7 +653,9 @@ class ResearchOrchestrator:
                     "liquidity_bias",
                     "UNKNOWN",
                 )
-            ),
+                or
+                "UNKNOWN"
+            ).upper(),
 
             buy_pressure=getattr(
                 liquidity_result,
@@ -640,31 +736,31 @@ class ResearchOrchestrator:
                 []
             ),
 
-            alignment_bonus=float(
-                ai_result.get(
-                    "alignment_bonus",
-                    0.0,
+            alignment_bonus=(
+                self._float(
+                    ai_result.get(
+                        "alignment_bonus",
+                        0.0,
+                    )
                 )
-                or
-                0.0
             ),
 
-            risk_penalty=float(
-                ai_result.get(
-                    "risk_penalty",
-                    0.0,
+            risk_penalty=(
+                self._float(
+                    ai_result.get(
+                        "risk_penalty",
+                        0.0,
+                    )
                 )
-                or
-                0.0
             ),
 
-            prebreakout_penalty=float(
-                ai_result.get(
-                    "prebreakout_penalty",
-                    0.0,
+            prebreakout_penalty=(
+                self._float(
+                    ai_result.get(
+                        "prebreakout_penalty",
+                        0.0,
+                    )
                 )
-                or
-                0.0
             ),
 
             critical_risk=bool(
@@ -679,7 +775,98 @@ class ResearchOrchestrator:
 
 
     # ========================================================
-    # RUN CYCLE
+    # PUBLISH SHORTLIST TO JALWE
+    # ========================================================
+
+    def _publish_to_jalwe(
+        self,
+        result: ResearchCycleResult,
+    ) -> None:
+
+        # ----------------------------------------------------
+        # No shortlist = nothing to send.
+        # ----------------------------------------------------
+
+        if not result.shortlist:
+
+            result.published_count = 0
+
+            result.bridge_status = (
+                "NO_SHORTLIST"
+            )
+
+            return
+
+        # ----------------------------------------------------
+        # Bridge missing.
+        # ----------------------------------------------------
+
+        if self.jalwe_bridge is None:
+
+            result.published_count = 0
+
+            result.bridge_status = (
+                "BRIDGE_UNAVAILABLE"
+            )
+
+            result.bridge_error = (
+                self.jalwe_bridge_error
+                or
+                "JALWE bridge unavailable."
+            )
+
+            return
+
+        # ----------------------------------------------------
+        # Publish research.
+        # ----------------------------------------------------
+
+        try:
+
+            published = (
+                self.jalwe_bridge
+                .publish_shortlist(
+                    result.shortlist
+                )
+            )
+
+            result.published_count = len(
+                published
+            )
+
+            result.bridge_status = (
+                "SUCCESS"
+            )
+
+        except Exception as exc:
+
+            logger.exception(
+                "Publishing Apex research "
+                "to JALWE failed: %s",
+                exc,
+            )
+
+            result.published_count = 0
+
+            result.bridge_status = (
+                "ERROR"
+            )
+
+            result.bridge_error = str(
+                exc
+            )
+
+            result.errors.append(
+                "JALWE_BRIDGE:"
+                +
+                str(
+                    exc
+                )
+            )
+
+
+    # ========================================================
+    # RUN COMPLETE RESEARCH CYCLE
     # ========================================================
 
     def run_cycle(
@@ -694,6 +881,7 @@ class ResearchOrchestrator:
         min_pre_confidence: float = (
             DEFAULT_MIN_PRE_CONFIDENCE
         ),
+        publish_to_jalwe: bool = True,
     ) -> ResearchCycleResult:
 
         started_at = (
@@ -706,7 +894,9 @@ class ResearchOrchestrator:
 
             status="STARTED",
 
-            started_at=started_at,
+            started_at=(
+                started_at
+            ),
         )
 
         # ====================================================
@@ -718,8 +908,11 @@ class ResearchOrchestrator:
             radar = (
                 self.scanner
                 .run_radar(
-                    top_n=(
-                        radar_top_n
+                    top_n=max(
+                        1,
+                        int(
+                            radar_top_n
+                        ),
                     )
                 )
             )
@@ -744,15 +937,17 @@ class ResearchOrchestrator:
 
             return result
 
-        if (
+        radar_status = str(
             getattr(
                 radar,
                 "status",
-                None,
+                "",
             )
-            !=
-            "SUCCESS"
-        ):
+            or
+            ""
+        ).upper()
+
+        if radar_status != "SUCCESS":
 
             result.status = (
                 "NO_RADAR_RESULTS"
@@ -808,23 +1003,29 @@ class ResearchOrchestrator:
 
             return result
 
+
         # ====================================================
         # 2. PREBREAKOUT
         # ====================================================
 
-        pre_results = []
+        pre_results: list[
+            tuple[
+                Any,
+                Any,
+            ]
+        ] = []
 
         for candidate in (
             radar_candidates
         ):
 
-            symbol = str(
+            symbol = self._symbol(
                 getattr(
                     candidate,
                     "symbol",
                     "",
                 )
-            ).strip().upper()
+            )
 
             if not symbol:
 
@@ -854,14 +1055,12 @@ class ResearchOrchestrator:
 
                 continue
 
-            confidence = float(
+            confidence = self._float(
                 getattr(
                     pre,
                     "data_confidence",
                     0.0,
                 )
-                or
-                0.0
             )
 
             if (
@@ -888,41 +1087,35 @@ class ResearchOrchestrator:
         )
 
         # ----------------------------------------------------
-        # Best technical research first
+        # Best technical candidates first.
         # ----------------------------------------------------
 
         pre_results.sort(
 
             key=lambda item: (
 
-                float(
+                self._float(
                     getattr(
                         item[1],
                         "score",
                         0.0,
                     )
-                    or
-                    0.0
                 ),
 
-                float(
+                self._float(
                     getattr(
                         item[1],
                         "data_confidence",
                         0.0,
                     )
-                    or
-                    0.0
                 ),
 
-                float(
+                self._float(
                     getattr(
                         item[0],
                         "rank_score",
                         0.0,
                     )
-                    or
-                    0.0
                 ),
             ),
 
@@ -960,6 +1153,7 @@ class ResearchOrchestrator:
 
             return result
 
+
         # ====================================================
         # 3. NEWS
         # 4. LIQUIDITY
@@ -975,13 +1169,17 @@ class ResearchOrchestrator:
             pre,
         ) in deep_candidates:
 
-            symbol = str(
+            symbol = self._symbol(
                 getattr(
                     candidate,
                     "symbol",
                     "",
                 )
-            ).strip().upper()
+            )
+
+            if not symbol:
+
+                continue
 
             # ------------------------------------------------
             # NEWS
@@ -1107,18 +1305,21 @@ class ResearchOrchestrator:
 
                 continue
 
-            if (
+            ai_status = str(
                 ai_result.get(
-                    "status"
+                    "status",
+                    "",
                 )
-                !=
-                "SUCCESS"
-            ):
+                or
+                ""
+            ).upper()
+
+            if ai_status != "SUCCESS":
 
                 result.errors.append(
 
                     f"{symbol}:AI_STATUS:"
-                    f"{ai_result.get('status')}"
+                    f"{ai_status}"
                 )
 
                 continue
@@ -1156,8 +1357,9 @@ class ResearchOrchestrator:
                 packet
             )
 
+
         # ====================================================
-        # FINAL SORT
+        # 6. FINAL SORT
         # ====================================================
 
         packets.sort(
@@ -1186,11 +1388,9 @@ class ResearchOrchestrator:
             )
         )
 
+
         # ====================================================
-        # SHORTLIST
-        #
-        # REJECT is NOT forwarded as a positive candidate.
-        # WATCH can still be forwarded for monitoring.
+        # 7. SHORTLIST
         # ====================================================
 
         allowed_verdicts = {
@@ -1202,23 +1402,27 @@ class ResearchOrchestrator:
             "HIGH_PRIORITY_RESEARCH",
         }
 
-        shortlist = [
+        shortlist: list[
+            ResearchPacket
+        ] = []
 
-            packet
-
-            for packet
-            in packets
+        for packet in packets:
 
             if (
                 packet.verdict
-                in
+                not in
                 allowed_verdicts
+            ):
 
-                and
+                continue
 
-                not packet.critical_risk
+            if packet.critical_risk:
+
+                continue
+
+            shortlist.append(
+                packet
             )
-        ]
 
         result.shortlist = (
             shortlist
@@ -1229,6 +1433,30 @@ class ResearchOrchestrator:
                 shortlist
             )
         )
+
+
+        # ====================================================
+        # 8. SEND SHORTLIST TO JALWE AUTOMATICALLY
+        # ====================================================
+
+        if publish_to_jalwe:
+
+            self._publish_to_jalwe(
+                result
+            )
+
+        else:
+
+            result.published_count = 0
+
+            result.bridge_status = (
+                "DISABLED_FOR_THIS_CYCLE"
+            )
+
+
+        # ====================================================
+        # 9. FINISH
+        # ====================================================
 
         result.status = (
             "SUCCESS"
@@ -1244,7 +1472,7 @@ class ResearchOrchestrator:
 
 
     # ========================================================
-    # SIMPLE RUN
+    # RUN ONCE
     # ========================================================
 
     def run_once(
@@ -1252,7 +1480,9 @@ class ResearchOrchestrator:
     ) -> ResearchCycleResult:
 
         return (
-            self.run_cycle()
+            self.run_cycle(
+                publish_to_jalwe=True
+            )
         )
 
 
@@ -1263,6 +1493,41 @@ class ResearchOrchestrator:
     def health_check(
         self,
     ) -> dict[str, Any]:
+
+        bridge_health = {
+
+            "available":
+                False,
+
+            "error":
+                self.jalwe_bridge_error,
+        }
+
+        if self.jalwe_bridge is not None:
+
+            try:
+
+                bridge_health = (
+                    self.jalwe_bridge
+                    .health_check()
+                )
+
+                bridge_health[
+                    "available"
+                ] = True
+
+            except Exception as exc:
+
+                bridge_health = {
+
+                    "available":
+                        False,
+
+                    "error":
+                        str(
+                            exc
+                        ),
+                }
 
         return {
 
@@ -1287,6 +1552,9 @@ class ResearchOrchestrator:
             "ai":
                 self.ai.health_check(),
 
+            "jalwe_bridge":
+                bridge_health,
+
             "pipeline": [
 
                 "SCANNER",
@@ -1300,7 +1568,17 @@ class ResearchOrchestrator:
                 "AI",
 
                 "RESEARCH_PACKET",
+
+                "SHORTLIST",
+
+                "JALWE_BRIDGE",
             ],
+
+            "auto_publish_to_jalwe":
+                True,
+
+            "research_only":
+                True,
 
             "order_execution_enabled":
                 False,
@@ -1308,7 +1586,7 @@ class ResearchOrchestrator:
 
 
 # ============================================================
-# STANDALONE TEST
+# STANDALONE
 # ============================================================
 
 if __name__ == "__main__":
@@ -1318,7 +1596,9 @@ if __name__ == "__main__":
     )
 
     cycle = (
-        engine.run_cycle()
+        engine.run_cycle(
+            publish_to_jalwe=True
+        )
     )
 
     print(
@@ -1326,7 +1606,7 @@ if __name__ == "__main__":
     )
 
     print(
-        "APEX RESEARCH ORCHESTRATOR V1"
+        "APEX RESEARCH ORCHESTRATOR V2"
     )
 
     print(
@@ -1363,7 +1643,28 @@ if __name__ == "__main__":
         cycle.shortlisted_count,
     )
 
+    print(
+        "PUBLISHED:",
+        cycle.published_count,
+    )
+
+    print(
+        "BRIDGE:",
+        cycle.bridge_status,
+    )
+
+    if cycle.bridge_error:
+
+        print(
+            "BRIDGE ERROR:",
+            cycle.bridge_error,
+        )
+
     print()
+
+    # --------------------------------------------------------
+    # ALL RESEARCH PACKETS
+    # --------------------------------------------------------
 
     for (
         index,
@@ -1400,6 +1701,40 @@ if __name__ == "__main__":
             "| LIQ:",
             packet.liquidity_score,
         )
+
+    # --------------------------------------------------------
+    # SHORTLIST
+    # --------------------------------------------------------
+
+    if cycle.shortlist:
+
+        print()
+
+        print(
+            "----- SENT TO JALWE -----"
+        )
+
+        for packet in (
+            cycle.shortlist
+        ):
+
+            print(
+
+                packet.symbol,
+
+                "| VERDICT:",
+                packet.verdict,
+
+                "| SCORE:",
+                packet.research_score,
+
+                "| CONF:",
+                packet.confidence,
+            )
+
+    # --------------------------------------------------------
+    # ERRORS
+    # --------------------------------------------------------
 
     if cycle.errors:
 
