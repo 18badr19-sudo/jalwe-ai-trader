@@ -5,3 +5,4 @@ pandas
 numpy
 scikit-learn
 alpaca-trade-api
+psycopg2-binary
