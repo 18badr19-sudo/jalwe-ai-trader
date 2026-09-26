@@ -182,14 +182,34 @@ class ScannerEngine:
     # ========================================================
 
     CUSTOM_COLUMNS = [
-        1,
-        25,
-        63,
-        64,
-        65,
-        66,
-        67,
+        1,   # Ticker
+        2,   # Company
+        25,  # Shares Float
+        63,  # Average Volume
+        64,  # Relative Volume
+        65,  # Price
+        66,  # Change
+        67,  # Volume
     ]
+
+    # Hard research-universe guard. Finviz already asks for
+    # "Stocks only (ex-Funds)", but this second layer catches
+    # ETF/fund products that can still leak through provider data.
+    NON_STOCK_NAME_MARKERS = {
+        " ETF",
+        "ETF ",
+        " EXCHANGE TRADED",
+        " YIELDMAX",
+        " DIREXION",
+        " PROSHARES",
+        " ISHARES",
+        " GLOBAL X",
+        " ROUNDHILL",
+        " DEFIANCE",
+        " GRANITESHARES",
+        " REX SHARES",
+        " T-REX",
+    }
 
     # ========================================================
     # INIT
@@ -338,6 +358,39 @@ class ScannerEngine:
             return None
 
         return symbol
+
+    # ========================================================
+    # SECURITY-TYPE GUARD
+    # ========================================================
+
+    @classmethod
+    def _looks_like_non_stock(
+        cls,
+        company_name: Any,
+    ) -> bool:
+
+        text = (
+            " "
+            +
+            str(
+                company_name
+                or ""
+            )
+            .strip()
+            .upper()
+            +
+            " "
+        )
+
+        if not text.strip():
+            return False
+
+        return any(
+            marker
+            in text
+            for marker
+            in cls.NON_STOCK_NAME_MARKERS
+        )
 
     # ========================================================
     # NUMERIC CONVERSION
@@ -996,6 +1049,16 @@ class ScannerEngine:
                 "contain ticker column."
             )
 
+        company_column = (
+            self._find_column(
+                dataframe,
+                [
+                    "Company",
+                    "Name",
+                ],
+            )
+        )
+
         float_column = (
             self._find_column(
                 dataframe,
@@ -1083,6 +1146,24 @@ class ScannerEngine:
             seen.add(
                 symbol
             )
+
+            company_name = (
+                row.get(
+                    company_column
+                )
+                if company_column
+                else None
+            )
+
+            if self._looks_like_non_stock(
+                company_name
+            ):
+                logger.debug(
+                    "ScannerEngine excluded non-stock product: %s | %s",
+                    symbol,
+                    company_name,
+                )
+                continue
 
             # -----------------------------------------------
             # Must exist as tradable Alpaca asset.
