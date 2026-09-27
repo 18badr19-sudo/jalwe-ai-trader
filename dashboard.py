@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hmac
 import sqlite3
 import urllib.parse
 import urllib.request
@@ -16,6 +17,23 @@ st.set_page_config(
     page_title="APEX Research Dashboard",
     layout="wide",
 )
+
+# This dashboard exposes account and trade information and can send an
+# operational Telegram message. Require a separate secret before rendering.
+dashboard_password = os.getenv("APEX_DASHBOARD_PASSWORD", "")
+if not dashboard_password:
+    st.error("Dashboard access is not configured.")
+    st.stop()
+
+if not st.session_state.get("apex_dashboard_authenticated", False):
+    entered_password = st.text_input("Dashboard password", type="password")
+    if st.button("Sign in"):
+        if hmac.compare_digest(entered_password, dashboard_password):
+            st.session_state["apex_dashboard_authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Invalid password.")
+    st.stop()
 
 st.title("APEX + JALWE — Research Dashboard")
 st.caption(
