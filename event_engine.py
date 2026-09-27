@@ -1,45 +1,58 @@
+from __future__ import annotations
+
 import logging
+from typing import Any
+
+
+logger = logging.getLogger(__name__)
+
 
 class EventEngine:
-    def __init__(self):
-        # Simulated high-impact macroeconomic events calendar
-        self.economic_calendar = [
-            {"event": "CPI Data Release", "impact": "HIGH", "status": "PENDING"},
-            {"event": "FOMC Rate Decision", "impact": "HIGH", "status": "MONITORING"},
-            {"event": "Non-Farm Payrolls", "impact": "MEDIUM", "status": "UPCOMING"}
-        ]
+    """
+    Research-only macro/event context.
+
+    No fake calendar is used. When no verified calendar provider is
+    connected, the engine returns UNKNOWN/REVIEW instead of inventing
+    an event or silently allowing execution.
+    """
+
+    def __init__(self, provider: Any = None) -> None:
+        self.provider = provider
 
     def check_event_risk(self, symbol: str) -> dict:
-        """
-        Evaluates macro event risks and earnings calendars to determine if trading should be paused.
-        """
-        try:
-            # Dynamic risk evaluation logic placeholder (can be linked to live API calendars)
-            high_risk_active = True  
-            
-            if high_risk_active:
-                return {
-                    "symbol": symbol.upper(),
-                    "event_risk": "HIGH",
-                    "action": "PAUSE_TRADING",
-                    "reason": "Upcoming high-impact macroeconomic or earnings event detected. Defending capital.",
-                    "status": "ACTIVE"
-                }
-            
+        symbol = str(symbol or "").strip().upper()
+
+        if self.provider is None:
             return {
-                "symbol": symbol.upper(),
-                "event_risk": "LOW",
-                "action": "PROCEED",
-                "reason": "No high-impact events posing immediate threat.",
-                "status": "ACTIVE"
-            }
-            
-        except Exception as e:
-            logging.error(f"Error checking event risk for {symbol}: {e}")
-            return {
-                "symbol": symbol.upper(),
+                "symbol": symbol,
                 "event_risk": "UNKNOWN",
-                "action": "PROCEED",
-                "reason": f"Error: {str(e)}",
-                "status": "ERROR"
+                "action": "REVIEW",
+                "reason": (
+                    "No verified macro-event calendar provider is "
+                    "connected to APEX."
+                ),
+                "status": "NO_DATA",
+            }
+
+        try:
+            result = self.provider.check_event_risk(symbol)
+
+            if not isinstance(result, dict):
+                raise TypeError(
+                    "Macro-event provider returned an invalid response."
+                )
+
+            return result
+
+        except Exception as exc:
+            logger.exception(
+                "Macro-event provider failed for %s",
+                symbol,
+            )
+            return {
+                "symbol": symbol,
+                "event_risk": "UNKNOWN",
+                "action": "REVIEW",
+                "reason": f"Provider error: {exc}",
+                "status": "ERROR",
             }
