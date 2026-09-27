@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from research_orchestrator import ResearchOrchestrator
 from news_engine import NewsEngine
+from service_health import ApexHeartbeat
 
 
 # ============================================================
@@ -1448,10 +1449,13 @@ def main() -> None:
     )
 
     last_session = None
+    heartbeat = ApexHeartbeat()
+    heartbeat.start()
 
     while True:
 
         try:
+            heartbeat.set_phase("SCANNING")
 
             # =================================================
             # DETECT SESSION
@@ -1552,12 +1556,14 @@ def main() -> None:
             # WAIT
             # =================================================
 
+            heartbeat.set_phase("WAITING")
             heartbeat_sleep(
                 interval,
                 session,
             )
 
         except KeyboardInterrupt:
+            heartbeat.stop()
 
             print()
 
@@ -1576,6 +1582,7 @@ def main() -> None:
             break
 
         except Exception as exc:
+            heartbeat.set_phase("ERROR")
 
             logger.exception(
                 "Unexpected Apex loop error: %s",
