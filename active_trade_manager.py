@@ -1,26 +1,55 @@
+"""
+APEX legacy active-trade compatibility module.
+
+APEX is research-only and never manages broker positions.
+JALWE V4 owns PAPER position management.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+
+logger = logging.getLogger(__name__)
+
+
 class ActiveTradeManager:
-    def __init__(self, alpaca_api):
+    RESEARCH_ONLY = True
+    ORDER_EXECUTION_ENABLED = False
+
+    def __init__(self, alpaca_api: Any = None) -> None:
         self.alpaca = alpaca_api
 
-    def monitor_open_positions(self):
+    def monitor_open_positions(self) -> list[dict[str, Any]]:
+        """
+        Read-only compatibility method.
+
+        It may return a lightweight snapshot when a client is supplied,
+        but it never buys, sells, closes, or modifies a position.
+        """
+        if self.alpaca is None:
+            return []
+
         try:
             positions = self.alpaca.list_positions()
-            for pos in positions:
-                symbol = pos.symbol
-                current_price = float(pos.current_price)
-                avg_entry = float(pos.avg_entry_price)
-                qty = float(pos.qty)
-                profit_pct = (current_price - avg_entry) / avg_entry
-                
-                if profit_pct >= 0.05 and qty > 1:
-                    sell_qty = int(qty / 2)
-                    self.alpaca.submit_order(
-                        symbol=symbol,
-                        qty=sell_qty,
-                        side='sell',
-                        type='market',
-                        time_in_force='gtc'
-                    )
-                    print(f"ActiveTradeManager: Partial take profit executed for {symbol} at +5%")
-        except Exception as e:
-            print(f"Error in ActiveTradeManager: {e}")
+        except Exception as exc:
+            logger.warning(
+                "APEX read-only position snapshot failed: %s",
+                exc,
+            )
+            return []
+
+        output: list[dict[str, Any]] = []
+
+        for pos in positions or []:
+            output.append(
+                {
+                    "symbol": str(getattr(pos, "symbol", "") or "").upper(),
+                    "qty": getattr(pos, "qty", None),
+                    "current_price": getattr(pos, "current_price", None),
+                    "avg_entry_price": getattr(pos, "avg_entry_price", None),
+                }
+            )
+
+        return output
