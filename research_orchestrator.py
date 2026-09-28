@@ -163,6 +163,7 @@ class ResearchCycleResult:
     market_eligible_count: int = 0
     market_coverage_complete: bool = False
     scanner_warnings: list[str] = field(default_factory=list)
+    scanner_rejections: dict[str, int] = field(default_factory=dict)
 
     valid_prebreakout_count: int = 0
 
@@ -954,6 +955,7 @@ class ResearchOrchestrator:
         result.market_eligible_count = getattr(radar, "tradable_count", 0)
         result.market_coverage_complete = getattr(radar, "coverage_complete", False)
         result.scanner_warnings = list(getattr(radar, "warnings", []) or [])
+        result.scanner_rejections = dict(getattr(radar, "rejection_counts", {}) or {})
 
         radar_status = str(
             getattr(

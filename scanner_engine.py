@@ -116,6 +116,7 @@ class RadarResult:
     snapshot_count: int = 0
     failed_batches: int = 0
     coverage_complete: bool = False
+    rejection_counts: dict[str, int] = field(default_factory=dict)
 
     filters: dict[str, str] = field(
         default_factory=dict
@@ -1397,11 +1398,13 @@ class ScannerEngine:
                     "snapshots=%s eligible=%s radar=%s failed_batches=%s complete=%s status=%s",
                     self.data_feed, scan.universe_count, scan.scanned_count, scan.snapshot_count,
                     len(scan.candidates), len(selected), scan.failed_batches, scan.complete, status)
+        logger.info("Scanner exclusions: %s", scan.rejection_counts)
         return RadarResult(symbols=[c.symbol for c in selected], ranked_candidates=selected,
             status=status, source="ALPACA_FULL_MARKET", scanned_count=scan.scanned_count,
             universe_count=scan.universe_count, snapshot_count=scan.snapshot_count,
             tradable_count=len(scan.candidates), returned_count=len(selected),
             failed_batches=scan.failed_batches, coverage_complete=scan.complete,
+            rejection_counts=scan.rejection_counts,
             filters={"price": f"{self.scan_min_price}-{self.scan_max_price}",
                      "feed": self.data_feed, "max_bar_age_minutes": "15"},
             warnings=scan.warnings,

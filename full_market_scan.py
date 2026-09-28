@@ -13,6 +13,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 import requests
+from dateutil.parser import isoparse
 
 NY = ZoneInfo("America/New_York")
 
@@ -27,7 +28,9 @@ def number(value):
 
 def timestamp(value):
     try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        # Alpaca timestamps can have nanoseconds. Python 3.10's fromisoformat
+        # accepts only 3 or 6 fractional digits; do not mark valid data stale.
+        parsed = isoparse(str(value))
         return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
     except (TypeError, ValueError):
         return None
@@ -38,17 +41,32 @@ def fresh(section, now):
     return stamp is not None and 0 <= (now - stamp).total_seconds() <= 900
 
 
-def snapshot_candidate(symbol, snapshot, now, min_price, max_price, ranker):
+def snapshot_candidate(symbol, snapshot, now, min_price, max_price, ranker, rejections=None):
+    def reject(reason):
+        if rejections is not None:
+            rejections[reason] = rejections.get(reason, 0) + 1
+        return None
+
     if not isinstance(snapshot, dict):
-        return None
+        return reject("INVALID_SNAPSHOT")
     minute = snapshot.get("minuteBar") or {}
-    if not fresh(minute, now):
-        return None
+    if not isinstance(minute, dict) or not minute:
+        return reject("MISSING_MINUTE_BAR")
+    bar_time = timestamp(minute.get("t"))
+    if bar_time is None:
+        return reject("INVALID_BAR_TIMESTAMP")
+    age = (now - bar_time).total_seconds()
+    if age < 0:
+        return reject("FUTURE_MINUTE_BAR")
+    if age > 900:
+        return reject("STALE_MINUTE_BAR")
     trade = snapshot.get("latestTrade") or {}
     price = number(trade.get("p")) if fresh(trade, now) else None
     price = price or number(minute.get("c"))
-    if price is None or not min_price <= price <= max_price:
-        return None
+    if price is None or price <= 0:
+        return reject("INVALID_PRICE")
+    if not min_price <= price <= max_price:
+        return reject("PRICE_OUT_OF_RANGE")
     day = snapshot.get("dailyBar") or {}
     previous = snapshot.get("prevDailyBar") or {}
     day = day if isinstance(day, dict) else {}
@@ -60,7 +78,7 @@ def snapshot_candidate(symbol, snapshot, now, min_price, max_price, ranker):
     # Before today's daily bar exists, use only actual recent-minute activity.
     volume = number(day.get("v")) if current_day else number(minute.get("v"))
     if volume is None or volume <= 0:
-        return None
+        return reject("INVALID_OR_ZERO_VOLUME")
     previous_volume = number(previous.get("v"))
     previous_close = number(previous.get("c"))
     previous_is_past = previous_time is not None and previous_time.astimezone(NY).date() < local.date()
@@ -72,7 +90,7 @@ def snapshot_candidate(symbol, snapshot, now, min_price, max_price, ranker):
     pace = pace if pace is not None and math.isfinite(pace) else None
     change = change if change is not None and math.isfinite(change) else None
     if not math.isfinite(price * volume):
-        return None
+        return reject("INVALID_DOLLAR_VOLUME")
     score, reasons, warnings = ranker(relative_volume=pace, volume=volume,
         average_volume=None, price=price, change_pct=change, float_shares=None)
     return dict(symbol=symbol, rank_score=score, relative_volume=pace,
@@ -91,6 +109,7 @@ class ScanResult:
     scanned_count: int = 0
     snapshot_count: int = 0
     failed_batches: int = 0
+    rejection_counts: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     complete: bool = False
 
@@ -155,9 +174,10 @@ def scan_market(symbols, *, api_key, api_secret, feed, min_price, max_price,
             for symbol in batch:
                 snapshot = snapshots.get(symbol)
                 if not isinstance(snapshot, dict) or not snapshot:
+                    result.rejection_counts["MISSING_SNAPSHOT"] = result.rejection_counts.get("MISSING_SNAPSHOT", 0) + 1
                     continue
                 result.snapshot_count += 1
-                candidate = snapshot_candidate(symbol, snapshot, now(), min_price, max_price, ranker)
+                candidate = snapshot_candidate(symbol, snapshot, now(), min_price, max_price, ranker, result.rejection_counts)
                 if candidate:
                     candidate["raw"]["feed"] = feed
                     result.candidates.append(candidate)
@@ -169,8 +189,12 @@ def scan_market(symbols, *, api_key, api_secret, feed, min_price, max_price,
         result.candidates.clear()
     else:
         finished = now()
+        previous_count = len(result.candidates)
         result.candidates = [c for c in result.candidates
             if fresh({"t": c["raw"]["latest_bar_at"]}, finished)]
+        expired = previous_count - len(result.candidates)
+        if expired:
+            result.rejection_counts["EXPIRED_DURING_SCAN"] = expired
         result.candidates.sort(key=lambda c: (c["rank_score"], c["relative_volume"] or 0,
                                              c["dollar_volume"], c["symbol"]), reverse=True)
     result.warnings = list(dict.fromkeys(result.warnings))

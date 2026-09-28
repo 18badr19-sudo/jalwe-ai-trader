@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from full_market_scan import ScanResult, scan_market, snapshot_candidate
+from full_market_scan import ScanResult, scan_market, snapshot_candidate, timestamp
 from scanner_engine import ScannerEngine
 
 NOW = datetime(2026, 9, 28, 18, 0, tzinfo=timezone.utc)
@@ -44,6 +44,32 @@ class FakeSession:
 
 
 class FullMarketTests(unittest.TestCase):
+    def test_alpaca_fractional_timestamps_on_python_310(self):
+        for fraction in ("1", "12", "123", "1234", "12345", "123456", "123456789"):
+            with self.subTest(fraction=fraction):
+                value = "2026-09-28T17:59:00." + fraction + "Z"
+                self.assertIsNotNone(timestamp(value))
+                item = snapshot()
+                item["minuteBar"]["t"] = value
+                self.assertIsNotNone(snapshot_candidate("A", item, NOW, 0.5, 100, ranker))
+
+    def test_exclusions_distinguish_stale_missing_invalid_price_and_volume(self):
+        items = {"STALE": snapshot(), "BADTIME": snapshot(), "PRICE": snapshot(),
+                 "VOLUME": snapshot(0), "GOOD": snapshot(), "MISSING": None}
+        items["STALE"]["minuteBar"]["t"] = (NOW - timedelta(minutes=16)).isoformat()
+        items["BADTIME"]["minuteBar"]["t"] = "invalid"
+        items["PRICE"]["latestTrade"]["p"] = 101
+        session = FakeSession()
+        response = Mock(status_code=200)
+        response.json.return_value = items
+        session.get = Mock(return_value=response)
+        result = self.scan(list(items), session)
+        self.assertEqual(result.rejection_counts, {"STALE_MINUTE_BAR": 1,
+            "INVALID_BAR_TIMESTAMP": 1, "PRICE_OUT_OF_RANGE": 1,
+            "INVALID_OR_ZERO_VOLUME": 1, "MISSING_SNAPSHOT": 1})
+        self.assertEqual(len(result.candidates), 1)
+        self.assertEqual(sum(result.rejection_counts.values()) + len(result.candidates), result.scanned_count)
+
     def scan(self, symbols, session=None, **kwargs):
         return scan_market(symbols, api_key="test", api_secret="test", feed="iex",
             min_price=0.5, max_price=100, ranker=ranker, session=session or FakeSession(),
