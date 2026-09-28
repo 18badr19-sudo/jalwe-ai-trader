@@ -946,6 +946,16 @@ def print_cycle(
         cycle.status,
     )
 
+    print("SCANNER SOURCE:", cycle.scanner_source)
+    print("SCANNER STATUS:", cycle.scanner_status)
+    print("MARKET UNIVERSE:", cycle.market_universe_count)
+    print("MARKET SCANNED:", cycle.market_scanned_count)
+    print("SNAPSHOTS:", cycle.market_snapshot_count)
+    print("FRESH ELIGIBLE:", cycle.market_eligible_count)
+    print("COVERAGE COMPLETE:", cycle.market_coverage_complete)
+    if cycle.scanner_warnings:
+        print("SCANNER WARNINGS:", ", ".join(cycle.scanner_warnings))
+
     print(
         "RADAR:",
         cycle.radar_count,

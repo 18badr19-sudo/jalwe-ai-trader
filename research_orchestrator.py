@@ -155,6 +155,15 @@ class ResearchCycleResult:
 
     radar_count: int = 0
 
+    scanner_source: str = "UNKNOWN"
+    scanner_status: str = "NOT_RUN"
+    market_universe_count: int = 0
+    market_scanned_count: int = 0
+    market_snapshot_count: int = 0
+    market_eligible_count: int = 0
+    market_coverage_complete: bool = False
+    scanner_warnings: list[str] = field(default_factory=list)
+
     valid_prebreakout_count: int = 0
 
     deep_research_count: int = 0
@@ -243,9 +252,9 @@ class ResearchOrchestrator:
 
     VERSION = "2.0"
 
-    DEFAULT_RADAR_TOP_N = 20
+    DEFAULT_RADAR_TOP_N = 40
 
-    DEFAULT_DEEP_RESEARCH_TOP_N = 5
+    DEFAULT_DEEP_RESEARCH_TOP_N = 8
 
     DEFAULT_MIN_PRE_CONFIDENCE = 75.0
 
@@ -936,6 +945,15 @@ class ResearchOrchestrator:
             )
 
             return result
+
+        result.scanner_source = getattr(radar, "source", "UNKNOWN")
+        result.scanner_status = getattr(radar, "status", "UNKNOWN")
+        result.market_universe_count = getattr(radar, "universe_count", 0)
+        result.market_scanned_count = getattr(radar, "scanned_count", 0)
+        result.market_snapshot_count = getattr(radar, "snapshot_count", 0)
+        result.market_eligible_count = getattr(radar, "tradable_count", 0)
+        result.market_coverage_complete = getattr(radar, "coverage_complete", False)
+        result.scanner_warnings = list(getattr(radar, "warnings", []) or [])
 
         radar_status = str(
             getattr(

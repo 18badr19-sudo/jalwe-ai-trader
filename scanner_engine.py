@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from finvizfinance.screener.custom import Custom
 from finvizfinance.screener.overview import Overview
+from full_market_scan import scan_market
 
 
 # ============================================================
@@ -111,6 +112,11 @@ class RadarResult:
 
     returned_count: int = 0
 
+    universe_count: int = 0
+    snapshot_count: int = 0
+    failed_batches: int = 0
+    coverage_complete: bool = False
+
     filters: dict[str, str] = field(
         default_factory=dict
     )
@@ -128,12 +134,13 @@ class RadarResult:
 
 class ScannerEngine:
     """
-    APEX SCANNER ENGINE V3
-    Ranked Small-Cap Pre-Breakout Radar
+    APEX SCANNER ENGINE V4
+    Full Alpaca-tradable US-equity research universe, then ranked radar.
+    Finviz is available only when full-market mode is explicitly disabled.
 
     PURPOSE:
 
-        Finviz
+        Alpaca asset universe + fresh snapshots
             ↓
         Small-cap filter
             ↓
@@ -258,6 +265,11 @@ class ScannerEngine:
         self.alpaca: Optional[
             REST
         ] = None
+
+        self.full_market_scan = os.getenv("APEX_FULL_MARKET_SCAN", "true").strip().lower() in {"1", "true", "yes", "on"}
+        self.data_feed = os.getenv("ALPACA_DATA_FEED", "iex").strip().lower() or "iex"
+        self.scan_min_price = max(0.01, float(os.getenv("APEX_SCAN_MIN_PRICE", "0.50")))
+        self.scan_max_price = max(self.scan_min_price, float(os.getenv("APEX_SCAN_MAX_PRICE", "100")))
 
         self._initialize_alpaca()
 
@@ -703,6 +715,9 @@ class ScannerEngine:
         symbols: set[str] = set()
 
         for asset in assets:
+
+            if self._looks_like_non_stock(getattr(asset, "name", "")):
+                continue
 
             if not bool(
                 getattr(
@@ -1367,6 +1382,31 @@ class ScannerEngine:
     # RUN RADAR
     # ========================================================
 
+    def _run_full_market_radar(self, top_n: int) -> RadarResult:
+        scan = scan_market(self._get_tradable_symbols(), api_key=self.api_key,
+            api_secret=self.api_secret, feed=self.data_feed,
+            min_price=self.scan_min_price, max_price=self.scan_max_price,
+            ranker=self._rank_candidate)
+        selected = [RankedCandidate(**item) for item in scan.candidates[:max(1, int(top_n))]]
+        status = "SUCCESS" if selected else "NO_MATCHES"
+        if not scan.complete:
+            status = "INCOMPLETE"
+        elif not scan.snapshot_count:
+            status = "NO_DATA"
+        logger.info("Scanner V4: source=ALPACA_FULL_MARKET feed=%s universe=%s scanned=%s "
+                    "snapshots=%s eligible=%s radar=%s failed_batches=%s complete=%s status=%s",
+                    self.data_feed, scan.universe_count, scan.scanned_count, scan.snapshot_count,
+                    len(scan.candidates), len(selected), scan.failed_batches, scan.complete, status)
+        return RadarResult(symbols=[c.symbol for c in selected], ranked_candidates=selected,
+            status=status, source="ALPACA_FULL_MARKET", scanned_count=scan.scanned_count,
+            universe_count=scan.universe_count, snapshot_count=scan.snapshot_count,
+            tradable_count=len(scan.candidates), returned_count=len(selected),
+            failed_batches=scan.failed_batches, coverage_complete=scan.complete,
+            filters={"price": f"{self.scan_min_price}-{self.scan_max_price}",
+                     "feed": self.data_feed, "max_bar_age_minutes": "15"},
+            warnings=scan.warnings,
+            error="; ".join(scan.warnings) if not scan.complete else None)
+
     def run_radar(
         self,
         *,
@@ -1409,7 +1449,12 @@ class ScannerEngine:
             )
 
         # ----------------------------------------------------
-        # FINVIZ
+        # Primary mode scans every eligible symbol before applying top_n.
+        # Never silently substitute a Finviz subset after a provider failure.
+        if self.full_market_scan:
+            return self._run_full_market_radar(top_n)
+
+        # FINVIZ (explicit legacy mode)
         # ----------------------------------------------------
 
         try:
