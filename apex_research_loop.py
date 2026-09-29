@@ -953,6 +953,7 @@ def print_cycle(
     print("SNAPSHOTS:", cycle.market_snapshot_count)
     print("FRESH ELIGIBLE:", cycle.market_eligible_count)
     print("COVERAGE COMPLETE:", cycle.market_coverage_complete)
+    print("SCANNER EXCLUSIONS:", cycle.scanner_rejections)
     if cycle.scanner_warnings:
         print("SCANNER WARNINGS:", ", ".join(cycle.scanner_warnings))
 
