@@ -1,6 +1,8 @@
 import copy
 import json
 import logging
+import subprocess
+import sys
 import unittest
 from datetime import timedelta
 from unittest.mock import Mock, patch
@@ -125,16 +127,30 @@ class ScanRefreshTests(unittest.TestCase):
 
 
 class AuditTests(unittest.TestCase):
+    def test_stdout_transport_works_when_module_logger_is_suppressed(self):
+        script = (
+            "import logging; logging.getLogger('scanner_engine').disabled=True; "
+            "logging.getLogger().setLevel(logging.WARNING); "
+            "from scan_audit import emit_audit; "
+            "emit_audit('transport-test','iex',[{'symbol':'YMT','stage':'DATA','reason':'STALE_MINUTE_BAR'}])"
+        )
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True)
+        self.assertEqual(result.stderr, "")
+        payload = json.loads(result.stdout.strip().split("APEX AUDIT ", 1)[1])
+        self.assertEqual(payload["rows"][0]["symbol"], "YMT")
+
     def test_chunks_preserve_all_symbols_without_secrets_or_invalid_json(self):
         session = RefreshSession({f"S{i:05d}": snapshot() for i in range(13508)}, {})
         result = ScanRefreshTests().scan(session)
         logger = Mock()
-        emit_audit(logger, result.scan_id, "iex", result.audit.values())
+        sleeper = Mock()
+        emit_audit(result.scan_id, "iex", result.audit.values(), logger=logger, sleep=sleeper)
         rows = []
-        self.assertLess(logger.info.call_count, 500)
+        self.assertEqual(sleeper.call_count, logger.info.call_count - 1)
+        self.assertTrue(all(call.args == (0.005,) for call in sleeper.call_args_list))
         for call in logger.info.call_args_list:
             message = call.args[1]
-            self.assertLessEqual(len(message), 12000)
+            self.assertLessEqual(len(message), 3000)
             self.assertNotIn("SECRET_", message)
             payload = json.loads(message)
             self.assertEqual(payload["scan_id"], result.scan_id)
@@ -152,7 +168,7 @@ class AuditTests(unittest.TestCase):
         session = RefreshSession({"YMT": snapshot(2000), "SMJF": snapshot(1000)}, {})
         def actual_scan(symbols, **kwargs):
             return scan_market(symbols, **kwargs, session=session, now=lambda: NOW, request_interval=0)
-        with patch("scanner_engine.scan_market", side_effect=actual_scan), self.assertLogs("scanner_engine", logging.INFO) as logs:
+        with patch("scanner_engine.scan_market", side_effect=actual_scan), self.assertLogs("apex.audit", logging.INFO) as logs:
             result = engine.run_radar(top_n=1)
         self.assertEqual(result.symbols, ["YMT"])
         rows = []

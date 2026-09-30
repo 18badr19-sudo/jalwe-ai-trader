@@ -2,7 +2,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
+import sys
+import time
+
+
+audit_logger = logging.getLogger("apex.audit")
+if not audit_logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    audit_logger.addHandler(handler)
+audit_logger.setLevel(logging.INFO)
+audit_logger.propagate = False
 
 
 def _safe(value):
@@ -15,19 +27,29 @@ def _safe(value):
     return value
 
 
-def emit_audit(logger, scan_id, feed, rows, max_chars=12000):
-    """Batch rows instead of emitting thousands of individual log lines."""
+def emit_audit(scan_id, feed, rows, *, logger=None, max_chars=3000, sleep=time.sleep):
+    """Use an explicit stdout handler, bounded lines and at most 200 lines/sec."""
+    logger = logger if logger is not None else audit_logger
     prefix = {"scan_id": scan_id, "feed": feed}
     chunk = []
     size = len(json.dumps(prefix)) + 30
+    emitted = False
+
+    def write_chunk(items):
+        nonlocal emitted
+        if emitted:
+            sleep(0.005)
+        logger.info("APEX AUDIT %s", json.dumps({**prefix, "rows": items}, separators=(",", ":")))
+        emitted = True
+
     for row in rows:
         row = _safe(row)
         row_size = len(json.dumps(row, separators=(",", ":"))) + 1
         if chunk and size + row_size > max_chars:
-            logger.info("APEX AUDIT %s", json.dumps({**prefix, "rows": chunk}, separators=(",", ":")))
+            write_chunk(chunk)
             chunk = []
             size = len(json.dumps(prefix)) + 30
         chunk.append(row)
         size += row_size
     if chunk:
-        logger.info("APEX AUDIT %s", json.dumps({**prefix, "rows": chunk}, separators=(",", ":")))
+        write_chunk(chunk)

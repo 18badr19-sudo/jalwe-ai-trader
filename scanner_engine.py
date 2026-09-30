@@ -119,6 +119,7 @@ class RadarResult:
     coverage_complete: bool = False
     rejection_counts: dict[str, int] = field(default_factory=dict)
     scan_id: str = ""
+    refresh_stats: dict[str, int] = field(default_factory=dict)
 
     filters: dict[str, str] = field(
         default_factory=dict
@@ -1416,7 +1417,7 @@ class ScannerEngine:
         logger.info("Scanner exclusions: %s", scan.rejection_counts)
         logger.info("Scanner bar refresh: requested=%s recovered=%s failed_batches=%s feed=%s scan_id=%s",
                     scan.refresh_requested, scan.refresh_recovered, scan.refresh_failed_batches, self.data_feed, scan.scan_id)
-        emit_audit(logger, scan.scan_id, self.data_feed,
+        emit_audit(scan.scan_id, self.data_feed,
                    [*getattr(self, "_universe_audit", {}).values(), *scan.audit.values()])
         return RadarResult(symbols=[c.symbol for c in selected], ranked_candidates=selected,
             status=status, source="ALPACA_FULL_MARKET", scanned_count=scan.scanned_count,
@@ -1425,6 +1426,8 @@ class ScannerEngine:
             failed_batches=scan.failed_batches, coverage_complete=scan.complete,
             rejection_counts=scan.rejection_counts,
             scan_id=scan.scan_id,
+            refresh_stats={"requested": scan.refresh_requested, "recovered": scan.refresh_recovered,
+                           "failed_batches": scan.refresh_failed_batches},
             filters={"price": f"{self.scan_min_price}-{self.scan_max_price}",
                      "feed": self.data_feed, "max_bar_age_minutes": "15"},
             warnings=scan.warnings,

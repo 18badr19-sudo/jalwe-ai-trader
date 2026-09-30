@@ -69,7 +69,10 @@ absent from that listing cannot receive an individual record. Logs begin with
 this deployment; they cannot reconstruct prior-day missing stage records and
 are available only within Railway's log retention window. Records omit raw
 provider bodies, headers, credentials and exception text. Related rows are
-batched to avoid thousands of individual lines per cycle.
+batched into at most 3,000-character payloads and sent through an explicit INFO
+stdout logger. Large batches are paced below 200 lines/second to stay under
+Railway's 500-line/second limit. The ordinary cycle summary also prints bar
+refresh counts, independently of the scanner module's logger configuration.
 
 Validation: `python -m unittest discover -s tests -v`. Tests use synthetic
 market-data responses and never contact a broker or submit orders.
