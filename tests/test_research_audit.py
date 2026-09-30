@@ -2,7 +2,7 @@ import json
 import logging
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from ai_engine import AIEngine
 from research_orchestrator import ResearchOrchestrator
@@ -38,7 +38,7 @@ class ResearchAuditTests(unittest.TestCase):
         return engine
 
     def run_and_rows(self, engine, **kwargs):
-        with self.assertLogs("research_orchestrator", logging.INFO) as logs:
+        with self.assertLogs("apex.audit", logging.INFO) as logs, patch("research_orchestrator.logger.exception"):
             result = engine.run_cycle(deep_research_top_n=3, **kwargs)
         rows = []
         for message in logs.output:

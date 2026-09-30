@@ -184,7 +184,7 @@ class ScannerIntegrationTests(unittest.TestCase):
         def actual_scan(symbols, **kwargs):
             return full_market_scan.scan_market(symbols, **kwargs, session=FakeSession(),
                                                request_interval=0, now=lambda: NOW)
-        with patch("scanner_engine.scan_market", side_effect=actual_scan):
+        with patch("scanner_engine.scan_market", side_effect=actual_scan), self.assertLogs("apex.audit"):
             result = engine.run_radar(top_n=40)
         self.assertEqual(result.source, "ALPACA_FULL_MARKET")
         self.assertEqual(result.status, "SUCCESS")

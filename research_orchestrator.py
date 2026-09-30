@@ -156,6 +156,7 @@ class ResearchCycleResult:
 
     scan_id: str = ""
     data_feed: str = "UNKNOWN"
+    scanner_refresh_stats: dict[str, int] = field(default_factory=dict)
 
     radar_count: int = 0
 
@@ -793,7 +794,7 @@ class ResearchOrchestrator:
     # ========================================================
 
     def _audit_research(self, result, symbol, stage, reason, **values):
-        emit_audit(logger, result.scan_id or result.started_at, result.data_feed,
+        emit_audit(result.scan_id or result.started_at, result.data_feed,
                    [{"symbol": symbol, "stage": stage, "reason": reason, **values}])
 
     def _publish_to_jalwe(
@@ -976,6 +977,7 @@ class ResearchOrchestrator:
         result.scanner_rejections = dict(getattr(radar, "rejection_counts", {}) or {})
         result.scan_id = getattr(radar, "scan_id", "") or started_at
         result.data_feed = (getattr(radar, "filters", {}) or {}).get("feed", "UNKNOWN")
+        result.scanner_refresh_stats = dict(getattr(radar, "refresh_stats", {}) or {})
 
         radar_status = str(
             getattr(
