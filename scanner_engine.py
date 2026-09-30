@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from finvizfinance.screener.custom import Custom
 from finvizfinance.screener.overview import Overview
 from full_market_scan import scan_market
+from scan_audit import emit_audit
 
 
 # ============================================================
@@ -117,6 +118,7 @@ class RadarResult:
     failed_batches: int = 0
     coverage_complete: bool = False
     rejection_counts: dict[str, int] = field(default_factory=dict)
+    scan_id: str = ""
 
     filters: dict[str, str] = field(
         default_factory=dict
@@ -689,6 +691,8 @@ class ScannerEngine:
         self,
     ) -> set[str]:
 
+        self._universe_audit = {}
+
         if self.alpaca is None:
 
             return set()
@@ -717,7 +721,11 @@ class ScannerEngine:
 
         for asset in assets:
 
+            audit_symbol = self._normalize_symbol(getattr(asset, "symbol", ""))
+
             if self._looks_like_non_stock(getattr(asset, "name", "")):
+                if audit_symbol:
+                    self._universe_audit[audit_symbol] = {"symbol": audit_symbol, "stage": "UNIVERSE", "reason": "FUND_NAME_GUARD"}
                 continue
 
             if not bool(
@@ -728,6 +736,8 @@ class ScannerEngine:
                 )
             ):
 
+                if audit_symbol:
+                    self._universe_audit[audit_symbol] = {"symbol": audit_symbol, "stage": "UNIVERSE", "reason": "ASSET_NOT_TRADABLE"}
                 continue
 
             symbol = (
@@ -1389,6 +1399,11 @@ class ScannerEngine:
             min_price=self.scan_min_price, max_price=self.scan_max_price,
             ranker=self._rank_candidate)
         selected = [RankedCandidate(**item) for item in scan.candidates[:max(1, int(top_n))]]
+        for rank, item in enumerate(scan.candidates, 1):
+            row = scan.audit.get(item["symbol"])
+            if row is not None:
+                row.update(stage="RADAR", rank=rank, radar_limit=max(1, int(top_n)),
+                           reason="SELECTED_RADAR" if rank <= max(1, int(top_n)) else "OUTSIDE_RADAR_TOP_N")
         status = "SUCCESS" if selected else "NO_MATCHES"
         if not scan.complete:
             status = "INCOMPLETE"
@@ -1399,12 +1414,17 @@ class ScannerEngine:
                     self.data_feed, scan.universe_count, scan.scanned_count, scan.snapshot_count,
                     len(scan.candidates), len(selected), scan.failed_batches, scan.complete, status)
         logger.info("Scanner exclusions: %s", scan.rejection_counts)
+        logger.info("Scanner bar refresh: requested=%s recovered=%s failed_batches=%s feed=%s scan_id=%s",
+                    scan.refresh_requested, scan.refresh_recovered, scan.refresh_failed_batches, self.data_feed, scan.scan_id)
+        emit_audit(logger, scan.scan_id, self.data_feed,
+                   [*getattr(self, "_universe_audit", {}).values(), *scan.audit.values()])
         return RadarResult(symbols=[c.symbol for c in selected], ranked_candidates=selected,
             status=status, source="ALPACA_FULL_MARKET", scanned_count=scan.scanned_count,
             universe_count=scan.universe_count, snapshot_count=scan.snapshot_count,
             tradable_count=len(scan.candidates), returned_count=len(selected),
             failed_batches=scan.failed_batches, coverage_complete=scan.complete,
             rejection_counts=scan.rejection_counts,
+            scan_id=scan.scan_id,
             filters={"price": f"{self.scan_min_price}-{self.scan_max_price}",
                      "feed": self.data_feed, "max_bar_age_minutes": "15"},
             warnings=scan.warnings,

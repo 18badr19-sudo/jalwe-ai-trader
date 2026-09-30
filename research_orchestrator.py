@@ -12,6 +12,7 @@ from pre_breakout_engine import PreBreakoutEngine
 from news_engine import NewsEngine
 from liquidity_engine import LiquidityEngine
 from ai_engine import AIEngine
+from scan_audit import emit_audit
 
 
 # ============================================================
@@ -152,6 +153,9 @@ class ResearchPacket:
 class ResearchCycleResult:
 
     status: str
+
+    scan_id: str = ""
+    data_feed: str = "UNKNOWN"
 
     radar_count: int = 0
 
@@ -788,6 +792,10 @@ class ResearchOrchestrator:
     # PUBLISH SHORTLIST TO JALWE
     # ========================================================
 
+    def _audit_research(self, result, symbol, stage, reason, **values):
+        emit_audit(logger, result.scan_id or result.started_at, result.data_feed,
+                   [{"symbol": symbol, "stage": stage, "reason": reason, **values}])
+
     def _publish_to_jalwe(
         self,
         result: ResearchCycleResult,
@@ -825,6 +833,9 @@ class ResearchOrchestrator:
                 "JALWE bridge unavailable."
             )
 
+            for packet in result.shortlist:
+                self._audit_research(result, packet.symbol, "BRIDGE", "BRIDGE_UNAVAILABLE")
+
             return
 
         # ----------------------------------------------------
@@ -847,6 +858,10 @@ class ResearchOrchestrator:
             result.bridge_status = (
                 "SUCCESS"
             )
+            acknowledged = set(published)
+            for packet in result.shortlist:
+                self._audit_research(result, packet.symbol, "BRIDGE",
+                    "PUBLISHED_TO_JALWE" if packet.symbol in acknowledged else "PUBLISH_NOT_ACKNOWLEDGED")
 
         except Exception as exc:
 
@@ -865,6 +880,9 @@ class ResearchOrchestrator:
             result.bridge_error = str(
                 exc
             )
+
+            for packet in result.shortlist:
+                self._audit_research(result, packet.symbol, "BRIDGE", "BRIDGE_PUBLISH_ERROR")
 
             result.errors.append(
                 "JALWE_BRIDGE:"
@@ -956,6 +974,8 @@ class ResearchOrchestrator:
         result.market_coverage_complete = getattr(radar, "coverage_complete", False)
         result.scanner_warnings = list(getattr(radar, "warnings", []) or [])
         result.scanner_rejections = dict(getattr(radar, "rejection_counts", {}) or {})
+        result.scan_id = getattr(radar, "scan_id", "") or started_at
+        result.data_feed = (getattr(radar, "filters", {}) or {}).get("feed", "UNKNOWN")
 
         radar_status = str(
             getattr(
@@ -1067,6 +1087,7 @@ class ResearchOrchestrator:
 
             except Exception as exc:
 
+                self._audit_research(result, symbol, "PRE", "PRE_ANALYSIS_ERROR", error_type=type(exc).__name__)
                 result.errors.append(
 
                     f"{symbol}:PRE:"
@@ -1091,6 +1112,8 @@ class ResearchOrchestrator:
                 )
             ):
 
+                self._audit_research(result, symbol, "PRE", "PRE_CONFIDENCE_BELOW_MIN",
+                                     confidence=confidence, minimum=float(min_pre_confidence))
                 continue
 
             pre_results.append(
@@ -1152,6 +1175,13 @@ class ResearchOrchestrator:
                 )
             ]
         )
+
+        for rank, (candidate, pre) in enumerate(pre_results, 1):
+            self._audit_research(result, candidate.symbol, "DEEP",
+                "SELECTED_DEEP_RESEARCH" if rank <= len(deep_candidates) else "OUTSIDE_DEEP_TOP_N",
+                rank=rank, deep_limit=max(1, int(deep_research_top_n)),
+                pre_score=self._float(getattr(pre, "score", 0.0)),
+                confidence=self._float(getattr(pre, "data_confidence", 0.0)))
 
         result.deep_research_count = (
             len(
@@ -1216,6 +1246,7 @@ class ResearchOrchestrator:
 
             except Exception as exc:
 
+                self._audit_research(result, symbol, "NEWS", "NEWS_ANALYSIS_ERROR", error_type=type(exc).__name__)
                 logger.exception(
                     "News failure for %s",
                     symbol,
@@ -1271,6 +1302,7 @@ class ResearchOrchestrator:
 
             except Exception as exc:
 
+                self._audit_research(result, symbol, "LIQUIDITY", "LIQUIDITY_ANALYSIS_ERROR", error_type=type(exc).__name__)
                 logger.exception(
                     "Liquidity failure for %s",
                     symbol,
@@ -1312,6 +1344,7 @@ class ResearchOrchestrator:
 
             except Exception as exc:
 
+                self._audit_research(result, symbol, "AI", "AI_ANALYSIS_ERROR", error_type=type(exc).__name__)
                 logger.exception(
                     "AI failure for %s",
                     symbol,
@@ -1336,6 +1369,7 @@ class ResearchOrchestrator:
 
             if ai_status != "SUCCESS":
 
+                self._audit_research(result, symbol, "AI", "AI_STATUS_NOT_SUCCESS", ai_status=ai_status)
                 result.errors.append(
 
                     f"{symbol}:AI_STATUS:"
@@ -1428,17 +1462,29 @@ class ResearchOrchestrator:
 
         for packet in packets:
 
+            audit_values = dict(score=packet.research_score, confidence=packet.confidence,
+                verdict=packet.verdict, pre_score=packet.prebreakout_score, news_score=packet.news_score,
+                liquidity_score=packet.liquidity_score, critical_risk=packet.critical_risk,
+                risk_flags=packet.risk_flags, watch_threshold=getattr(self.ai, "watch_threshold", AIEngine.WATCH_THRESHOLD))
+
             if (
                 packet.verdict
                 not in
                 allowed_verdicts
             ):
 
+                reason = "CRITICAL_RESEARCH_RISK" if packet.critical_risk else "RESEARCH_VERDICT_REJECT"
+                if not packet.critical_risk and packet.research_score < audit_values["watch_threshold"]:
+                    reason = "SCORE_BELOW_WATCH_THRESHOLD"
+                self._audit_research(result, packet.symbol, "RESEARCH", reason, **audit_values)
                 continue
 
             if packet.critical_risk:
 
+                self._audit_research(result, packet.symbol, "RESEARCH", "CRITICAL_RESEARCH_RISK", **audit_values)
                 continue
+
+            self._audit_research(result, packet.symbol, "RESEARCH", "SHORTLIST_ELIGIBLE", **audit_values)
 
             shortlist.append(
                 packet
@@ -1468,6 +1514,8 @@ class ResearchOrchestrator:
         else:
 
             result.published_count = 0
+            for packet in result.shortlist:
+                self._audit_research(result, packet.symbol, "BRIDGE", "PUBLISH_DISABLED")
 
             result.bridge_status = (
                 "DISABLED_FOR_THIS_CYCLE"
