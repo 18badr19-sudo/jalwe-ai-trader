@@ -35,5 +35,41 @@ reflects that exchange only. No subscription or trading account is changed.
 Logs show universe, successfully scanned symbols, available snapshots, fresh
 eligible candidates, selected radar size, failed batches and coverage status.
 
+## Bounded refresh and per-symbol audit
+
+When a Snapshot has a missing/invalid/stale minute bar but a recent, valid trade
+inside the price range, APEX makes a batched `GET /v2/stocks/bars/latest` request
+using the same configured feed. It replaces the bar only if the provider returns
+a real, fresh bar with positive price and volume. It never builds bars from
+quotes or trades, changes feeds, or extends the 15-minute freshness limit.
+JALWE's independent closed-bar, strategy and risk checks still apply.
+
+At most eight optional refresh batches run per scan. Primary snapshot and
+refresh requests share the existing request pacing and 180-second deadline.
+Optional transient failures preserve the original rejection; authentication,
+access and rate-limit failures stop further requests and suppress incomplete
+scan candidates. Final freshness is checked again after the scan. The refresh
+summary's `recovered` count includes only candidates surviving that final check.
+This can recover an outdated Snapshot cache, but cannot supply activity absent
+from IEX or provide consolidated volume. No new data subscription is enabled.
+
+Search Railway runtime logs for `APEX AUDIT` and a ticker. Compact JSON batches
+carry a shared `scan_id` and `feed`, with individual symbol records for:
+
+- Asset universe exclusions (not tradable, fund-name guard).
+- Missing, invalid, future, stale and out-of-range market data.
+- Refresh attempts, original/current bar timestamps and observed bar age.
+- Every eligible symbol's rank, including candidates outside the radar limit.
+- Low PreBreakout confidence and candidates outside the deep-research limit.
+- Analysis errors, research scores/risks and research-verdict exclusions.
+- Bridge acknowledgment per symbol, without claiming broker execution.
+
+Audit records cover symbols returned by Alpaca's active asset listing. A symbol
+absent from that listing cannot receive an individual record. Logs begin with
+this deployment; they cannot reconstruct prior-day missing stage records and
+are available only within Railway's log retention window. Records omit raw
+provider bodies, headers, credentials and exception text. Related rows are
+batched to avoid thousands of individual lines per cycle.
+
 Validation: `python -m unittest discover -s tests -v`. Tests use synthetic
 market-data responses and never contact a broker or submit orders.
