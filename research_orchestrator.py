@@ -125,6 +125,13 @@ class ResearchPacket:
     # METADATA
     # --------------------------------------------------------
 
+    metadata: dict[
+        str,
+        Any,
+    ] = field(
+        default_factory=dict
+    )
+
     created_at: str = field(
         default_factory=lambda: (
             datetime.now(
@@ -426,6 +433,288 @@ class ResearchOrchestrator:
             value
             or ""
         ).strip().upper()
+
+
+    @staticmethod
+    def _setup_context(
+        pre_result: Any,
+    ) -> dict[str, Any]:
+        """
+        Build research-only setup structure for APEX memory/JALWE.
+
+        The levels below are advisory references, not broker orders.
+        """
+
+        def safe_float(
+            value: Any,
+        ) -> Optional[float]:
+            try:
+                if value is None:
+                    return None
+
+                result = float(
+                    value
+                )
+
+                if result != result:
+                    return None
+
+                return result
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                return None
+
+        current_price = safe_float(
+            getattr(
+                pre_result,
+                "current_price",
+                None,
+            )
+        )
+
+        frames = {
+            "5m": getattr(
+                pre_result,
+                "timeframe_5m",
+                None,
+            ),
+            "30m": getattr(
+                pre_result,
+                "timeframe_30m",
+                None,
+            ),
+            "1h": getattr(
+                pre_result,
+                "timeframe_1h",
+                None,
+            ),
+            "1d": getattr(
+                pre_result,
+                "timeframe_1d",
+                None,
+            ),
+        }
+
+        resistances: dict[
+            str,
+            Optional[float],
+        ] = {}
+
+        support_candidates: list[
+            float
+        ] = []
+
+        for name, frame in frames.items():
+            resistance = safe_float(
+                getattr(
+                    frame,
+                    "resistance",
+                    None,
+                )
+                if frame is not None
+                else None
+            )
+
+            resistances[
+                name
+            ] = resistance
+
+            if frame is None:
+                continue
+
+            for attr in (
+                "vwap",
+                "ma10",
+                "ma20",
+            ):
+                value = safe_float(
+                    getattr(
+                        frame,
+                        attr,
+                        None,
+                    )
+                )
+
+                if (
+                    value is not None
+                    and value > 0
+                    and (
+                        current_price is None
+                        or value
+                        < current_price
+                    )
+                ):
+                    support_candidates.append(
+                        value
+                    )
+
+        valid_resistances = [
+            value
+            for value in (
+                resistances["5m"],
+                resistances["30m"],
+                resistances["1h"],
+                resistances["1d"],
+            )
+            if (
+                value is not None
+                and value > 0
+            )
+        ]
+
+        activation_price = None
+
+        if (
+            current_price is not None
+            and current_price > 0
+        ):
+            above = [
+                value
+                for value in valid_resistances
+                if value >= current_price
+            ]
+
+            if above:
+                activation_price = min(
+                    above
+                )
+
+        if (
+            activation_price is None
+            and valid_resistances
+        ):
+            activation_price = max(
+                valid_resistances
+            )
+
+        support_reference = (
+            max(
+                support_candidates
+            )
+            if support_candidates
+            else None
+        )
+
+        entry_zone_low = None
+        entry_zone_high = None
+        target_1_reference = None
+        target_2_reference = None
+        target_3_reference = None
+
+        if (
+            activation_price is not None
+            and activation_price > 0
+        ):
+            entry_zone_low = round(
+                activation_price
+                * 0.995,
+                4,
+            )
+
+            entry_zone_high = round(
+                activation_price
+                * 1.005,
+                4,
+            )
+
+            default_risk = (
+                activation_price
+                * 0.02
+            )
+
+            raw_risk = (
+                activation_price
+                - support_reference
+                if (
+                    support_reference is not None
+                    and support_reference
+                    < activation_price
+                )
+                else default_risk
+            )
+
+            risk_unit = max(
+                activation_price
+                * 0.005,
+                min(
+                    raw_risk,
+                    activation_price
+                    * 0.05,
+                ),
+            )
+
+            target_1_reference = round(
+                activation_price
+                + risk_unit,
+                4,
+            )
+
+            target_2_reference = round(
+                activation_price
+                + (
+                    risk_unit
+                    * 2.0
+                ),
+                4,
+            )
+
+            target_3_reference = round(
+                activation_price
+                + (
+                    risk_unit
+                    * 3.0
+                ),
+                4,
+            )
+
+        reasons = list(
+            getattr(
+                pre_result,
+                "reasons",
+                [],
+            )
+            or []
+        )
+
+        return {
+            "current_price":
+                current_price,
+            "activation_price":
+                activation_price,
+            "entry_zone_low":
+                entry_zone_low,
+            "entry_zone_high":
+                entry_zone_high,
+            "support_reference":
+                support_reference,
+            "resistance_5m":
+                resistances["5m"],
+            "resistance_30m":
+                resistances["30m"],
+            "resistance_1h":
+                resistances["1h"],
+            "resistance_1d":
+                resistances["1d"],
+            "target_1_reference":
+                target_1_reference,
+            "target_2_reference":
+                target_2_reference,
+            "target_3_reference":
+                target_3_reference,
+            "reason":
+                " | ".join(
+                    str(item)
+                    for item in reasons[:6]
+                    if str(item).strip()
+                ),
+            "level_source":
+                "APEX_PREBREAKOUT_STRUCTURE",
+            "research_only":
+                True,
+        }
 
 
     # ========================================================
@@ -784,6 +1073,19 @@ class ResearchOrchestrator:
                     False,
                 )
             ),
+
+            metadata={
+                "watch_lane":
+                    "FAST_OPPORTUNITY",
+                "setup_context":
+                    self._setup_context(
+                        pre_result
+                    ),
+                "research_only":
+                    True,
+                "order_execution_enabled":
+                    False,
+            },
 
             order_execution_enabled=False,
         )
