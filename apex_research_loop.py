@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from research_orchestrator import ResearchOrchestrator
 from news_engine import NewsEngine
 from service_health import ApexHeartbeat
+from setup_memory import SetupMemoryWatcher
 
 
 # ============================================================
@@ -23,7 +24,7 @@ from service_health import ApexHeartbeat
 # NO ORDER EXECUTION
 # ============================================================
 
-VERSION = "2.1"
+VERSION = "2.2"
 
 
 # ============================================================
@@ -1460,6 +1461,39 @@ def main() -> None:
         NewsEngine()
     )
 
+    setup_memory = None
+
+    try:
+        setup_memory = (
+            SetupMemoryWatcher(
+                orchestrator
+            )
+        )
+
+        print(
+            "SETUP MEMORY: ENABLED"
+        )
+
+        print(
+            "SETUP MEMORY BACKEND:",
+            setup_memory.store.backend,
+        )
+
+        print(
+            "SETUP MEMORY REFRESH/CYCLE:",
+            setup_memory.max_refresh_per_cycle,
+        )
+
+    except Exception as exc:
+        logger.warning(
+            "APEX setup memory unavailable: %s",
+            exc,
+        )
+
+        print(
+            "SETUP MEMORY: DISABLED"
+        )
+
     last_session = None
     heartbeat = ApexHeartbeat()
     heartbeat.start()
@@ -1535,6 +1569,90 @@ def main() -> None:
                     cycle,
                     session,
                 )
+
+                if setup_memory is not None:
+                    try:
+                        memory_result = (
+                            setup_memory
+                            .process_cycle(
+                                cycle
+                            )
+                        )
+
+                        observed = (
+                            memory_result
+                            .get(
+                                "observed",
+                                {},
+                            )
+                        )
+
+                        refreshed = (
+                            memory_result
+                            .get(
+                                "refreshed",
+                                {},
+                            )
+                        )
+
+                        print(
+                            "SETUP MEMORY:",
+                            "remembered=",
+                            observed.get(
+                                "remembered",
+                                0,
+                            ),
+                            "| checked=",
+                            refreshed.get(
+                                "checked",
+                                0,
+                            ),
+                            "| near=",
+                            refreshed.get(
+                                "near_activation",
+                                0,
+                            ),
+                            "| woke JALWE=",
+                            ",".join(
+                                refreshed.get(
+                                    "published",
+                                    [],
+                                )
+                            )
+                            or "0",
+                        )
+
+                        memory_errors = (
+                            list(
+                                observed.get(
+                                    "errors",
+                                    [],
+                                )
+                                or []
+                            )
+                            +
+                            list(
+                                refreshed.get(
+                                    "errors",
+                                    [],
+                                )
+                                or []
+                            )
+                        )
+
+                        if memory_errors:
+                            print(
+                                "SETUP MEMORY WARNINGS:",
+                                len(
+                                    memory_errors
+                                ),
+                            )
+
+                    except Exception as exc:
+                        logger.exception(
+                            "APEX setup memory cycle failed: %s",
+                            exc,
+                        )
 
             # =================================================
             # CLOSED
