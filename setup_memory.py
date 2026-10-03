@@ -936,15 +936,9 @@ class SetupMemoryStore:
             int(limit),
         )
 
-        cutoff = utc_iso(
-            utc_now()
-            - timedelta(
-                days=max(
-                    1,
-                    int(max_age_days),
-                )
-            )
-        )
+        # Zero disables age-only exclusion. Fresh validation still gates publishing.
+        cutoff = (utc_iso(utc_now() - timedelta(days=int(max_age_days)))
+                  if int(max_age_days) > 0 else None)
 
         if self.backend == "POSTGRES":
             conn = self._connect_postgres()
@@ -956,7 +950,7 @@ class SetupMemoryStore:
                         SELECT *
                         FROM apex_setup_memory
                         WHERE status = 'ACTIVE'
-                          AND last_seen_at >= %s
+                          AND (%s::text IS NULL OR last_seen_at >= %s)
                         ORDER BY
                             CASE
                                 WHEN last_checked_at IS NULL
@@ -968,6 +962,7 @@ class SetupMemoryStore:
                         LIMIT %s
                         """,
                         (
+                            cutoff,
                             cutoff,
                             limit * 5,
                         ),
@@ -1001,7 +996,7 @@ class SetupMemoryStore:
                     SELECT *
                     FROM apex_setup_memory
                     WHERE status = 'ACTIVE'
-                      AND last_seen_at >= ?
+                      AND (? IS NULL OR last_seen_at >= ?)
                     ORDER BY
                         CASE
                             WHEN last_checked_at IS NULL
@@ -1013,6 +1008,7 @@ class SetupMemoryStore:
                     LIMIT ?
                     """,
                     (
+                        cutoff,
                         cutoff,
                         limit * 5,
                     ),
@@ -1238,17 +1234,13 @@ class SetupMemoryWatcher:
             ),
         )
 
-        self.max_age_days = max(
-            1,
-            int(
-                max_age_days
-                if max_age_days is not None
-                else os.getenv(
-                    "APEX_SETUP_MEMORY_MAX_AGE_DAYS",
-                    "30",
-                )
-            ),
-        )
+        self.keep_until_opportunity = str(os.getenv(
+            "APEX_SETUP_MEMORY_KEEP_UNTIL_OPPORTUNITY", "true"
+        )).strip().lower() in {"true", "1", "yes", "on"}
+        self.max_age_days = (0 if self.keep_until_opportunity else max(
+            1, int(max_age_days if max_age_days is not None else
+                   os.getenv("APEX_SETUP_MEMORY_MAX_AGE_DAYS", "30"))
+        ))
 
         self.wake_distance_pct = max(
             0.1,

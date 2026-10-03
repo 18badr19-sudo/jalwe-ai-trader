@@ -1484,6 +1484,12 @@ def main() -> None:
             setup_memory.max_refresh_per_cycle,
         )
 
+        print(
+            "SETUP MEMORY RETENTION:",
+            "UNTIL_OPPORTUNITY" if setup_memory.keep_until_opportunity
+            else f"{setup_memory.max_age_days}_DAYS",
+        )
+
     except Exception as exc:
         logger.warning(
             "APEX setup memory unavailable: %s",

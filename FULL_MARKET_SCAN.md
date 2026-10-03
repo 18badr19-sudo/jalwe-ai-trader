@@ -76,3 +76,15 @@ refresh counts, independently of the scanner module's logger configuration.
 
 Validation: `python -m unittest discover -s tests -v`. Tests use synthetic
 market-data responses and never contact a broker or submit orders.
+
+
+
+### Persistent opportunity monitoring
+
+Saved ACTIVE setups remain eligible for refresh until a fresh opportunity appears,
+even after they leave the radar shortlist. By default the watcher does not exclude
+them merely because 30 days passed. Set APEX_SETUP_MEMORY_KEEP_UNTIL_OPPORTUNITY=false
+to opt back into the configured age limit. Publication still requires fresh
+PreBreakout, news, liquidity and AI checks and the existing wake cooldown.
+Low scores, data/API errors and critical risk never authorize an entry. APEX
+publishes research only; JALWE alone decides and executes PAPER orders.
