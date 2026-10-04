@@ -467,6 +467,7 @@ class ApexSetupMemoryTests(
                 )
             ),
             jalwe_bridge=bridge,
+            _setup_context=builder._setup_context,
             _build_packet=(
                 builder._build_packet
             ),

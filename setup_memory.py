@@ -924,6 +924,53 @@ class SetupMemoryStore:
 
         return result
 
+    def refresh_structure(
+        self,
+        symbol: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Refresh technical levels without inventing a new research score."""
+        row = self.get(symbol)
+        if row is None:
+            raise ValueError("Cannot refresh an unknown saved setup.")
+
+        fields = (
+            "current_price", "activation_price", "entry_zone_low", "entry_zone_high",
+            "support_reference", "resistance_5m", "resistance_30m", "resistance_1h",
+            "resistance_1d", "target_1_reference", "target_2_reference", "target_3_reference",
+        )
+        levels = {field: _float(context.get(field)) for field in fields}
+        snapshot = dict(row["snapshot"])
+        snapshot.update(context)
+        snapshot.update(levels)
+        snapshot["structure_refreshed_at"] = utc_iso()
+        placeholder = "%s" if self.backend == "POSTGRES" else "?"
+        assignments = ", ".join(f"{field} = {placeholder}" for field in fields)
+        query = (
+            f"UPDATE apex_setup_memory SET {assignments}, snapshot_json = {placeholder} "
+            f"WHERE symbol = {placeholder}"
+        )
+        values = (*levels.values(), _json(snapshot), row["symbol"])
+
+        if self.backend == "POSTGRES":
+            conn = self._connect_postgres()
+            try:
+                with conn:
+                    with conn.cursor() as cur:
+                        cur.execute(query, values)
+            finally:
+                conn.close()
+        else:
+            conn = self._connect_sqlite()
+            with self._lock:
+                conn.execute(query, values)
+                conn.commit()
+
+        row.update(levels)
+        row["snapshot"] = snapshot
+        row["snapshot_json"] = _json(snapshot)
+        return row
+
     def list_due(
         self,
         *,
@@ -939,6 +986,11 @@ class SetupMemoryStore:
         # Zero disables age-only exclusion. Fresh validation still gates publishing.
         cutoff = (utc_iso(utc_now() - timedelta(days=int(max_age_days)))
                   if int(max_age_days) > 0 else None)
+        excluded = sorted({
+            str(symbol).strip().upper()
+            for symbol in (exclude_symbols or set())
+            if str(symbol).strip()
+        })
 
         if self.backend == "POSTGRES":
             conn = self._connect_postgres()
@@ -951,6 +1003,7 @@ class SetupMemoryStore:
                         FROM apex_setup_memory
                         WHERE status = 'ACTIVE'
                           AND (%s::text IS NULL OR last_seen_at >= %s)
+                          AND symbol <> ALL(%s::text[])
                         ORDER BY
                             CASE
                                 WHEN last_checked_at IS NULL
@@ -964,7 +1017,8 @@ class SetupMemoryStore:
                         (
                             cutoff,
                             cutoff,
-                            limit * 5,
+                            excluded,
+                            limit,
                         ),
                     )
 
@@ -989,14 +1043,19 @@ class SetupMemoryStore:
 
         else:
             conn = self._connect_sqlite()
+            exclusion_sql = (
+                "AND symbol NOT IN (" + ",".join("?" for _ in excluded) + ")"
+                if excluded else ""
+            )
 
             with self._lock:
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT *
                     FROM apex_setup_memory
                     WHERE status = 'ACTIVE'
                       AND (? IS NULL OR last_seen_at >= ?)
+                      {exclusion_sql}
                     ORDER BY
                         CASE
                             WHEN last_checked_at IS NULL
@@ -1010,7 +1069,8 @@ class SetupMemoryStore:
                     (
                         cutoff,
                         cutoff,
-                        limit * 5,
+                        *excluded,
+                        limit,
                     ),
                 ).fetchall()
 
@@ -1019,29 +1079,9 @@ class SetupMemoryStore:
                 for row in rows
             ]
 
-        excluded = {
-            str(symbol).strip().upper()
-            for symbol in (
-                exclude_symbols
-                or set()
-            )
-            if str(symbol).strip()
-        }
-
         result = []
 
         for row in records:
-            symbol = str(
-                row.get(
-                    "symbol",
-                    "",
-                )
-                or ""
-            ).upper()
-
-            if symbol in excluded:
-                continue
-
             row["snapshot"] = _loads(
                 row.get(
                     "snapshot_json"
@@ -1832,12 +1872,6 @@ class SetupMemoryWatcher:
                     )
                 )
 
-                activation_price = _float(
-                    row.get(
-                        "activation_price"
-                    )
-                )
-
                 if (
                     pre_score
                     < self.minimum_pre_score
@@ -1845,6 +1879,13 @@ class SetupMemoryWatcher:
                     < self.minimum_pre_confidence
                 ):
                     continue
+
+                # Old levels can be weeks out of date. Persist current structure
+                # before proximity/cooldown gates, without changing research history.
+                row = self.store.refresh_structure(
+                    symbol, self.orchestrator._setup_context(pre)
+                )
+                activation_price = _float(row.get("activation_price"))
 
                 (
                     near,
