@@ -3,12 +3,11 @@ class TargetRiskEngine:
         self.alpaca = alpaca_api
 
     def calculate_levels(self, symbol, current_price):
-        """حساب الدخول، وقف الخسارة، والأهداف بناءً على الهيكلة الفنية وATR"""
+        """مستويات بحثية قديمة من متوسط النطاق اليومي؛ ليست ATR أو أوامر JALWE"""
         try:
             bars = self.alpaca.get_bars(symbol, "1Day", limit=14).df
             if bars.empty:
-                # قيم افتراضية آمنة في حال عدم توفر البيانات اليومية الكافية
-                atr = current_price * 0.02
+                raise ValueError('Daily price evidence is unavailable.')
             else:
                 high_low = bars['high'] - bars['low']
                 atr = high_low.mean()
@@ -32,10 +31,6 @@ class TargetRiskEngine:
                 "target_3": f"{target_3}"
             }
         except Exception as e:
-            return {
-                "entry_zone": f"${current_price}",
-                "stop_loss": f"${round(current_price * 0.98, 2)}",
-                "target_1": f"${round(current_price * 1.05, 2)}",
-                "target_2": f"${round(current_price * 1.10, 2)}",
-                "target_3": "Dynamic"
-            }
+            return {"status": "UNAVAILABLE", "reason": type(e).__name__,
+                    "entry_zone": None, "stop_loss": None,
+                    "target_1": None, "target_2": None, "target_3": None}

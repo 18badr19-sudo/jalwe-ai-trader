@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import numpy as np
 import requests
 import logging
 
@@ -19,7 +18,7 @@ class MarketDataEngine:
     def fetch_latest_bars(self, symbol: str, limit: int = 100) -> pd.DataFrame:
         """
         Fetches real historical OHLCV price bars from Alpaca Paper API, 
-        with fallback to clean simulated data if connection fails.
+        Returns an empty frame when provider data is unavailable; never synthesizes prices.
         """
         headers = {
             "APCA-API-KEY-ID": self.api_key,
@@ -47,24 +46,10 @@ class MarketDataEngine:
                     df["timestamp"] = pd.to_datetime(df["timestamp"])
                     return df
         except Exception as e:
-            logging.warning(f"Could not fetch live Alpaca bars for {symbol}: {e}. Using fallback data.")
+            logging.warning(f"Could not fetch Alpaca bars for {symbol}: {type(e).__name__}. Data unavailable.")
 
-        # Fallback mechanism if live API request fails temporarily
-        try:
-            np.random.seed(42)
-            base_price = 150.0 if symbol.upper() == "AAPL" else (250.0 if symbol.upper() == "TSLA" else 15.0)
-            data = {
-                "timestamp": pd.date_range(end=pd.Timestamp.now(), periods=limit, freq="1min"),
-                "open": base_price + np.random.randn(limit).cumsum() * 0.2,
-                "high": base_price + np.random.randn(limit).cumsum() * 0.2 + 0.5,
-                "low": base_price + np.random.randn(limit).cumsum() * 0.2 - 0.5,
-                "close": base_price + np.random.randn(limit).cumsum() * 0.2,
-                "volume": np.random.randint(500, 5000, size=limit)
-            }
-            return pd.DataFrame(data)
-        except Exception as fallback_error:
-            logging.error(f"Error generating fallback data for {symbol}: {fallback_error}")
-            return pd.DataFrame()
+        # Missing broker data is missing evidence, not a simulated market.
+        return pd.DataFrame()
 
     def validate_data_quality(self, df: pd.DataFrame) -> bool:
         """

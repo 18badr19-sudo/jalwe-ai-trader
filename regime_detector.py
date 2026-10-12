@@ -39,10 +39,5 @@ class RegimeDetector:
 def get_current_market_regime(spy_df: pd.DataFrame = None) -> str:
     detector = RegimeDetector()
     if spy_df is None:
-        # Fallback mock benchmark data if none provided
-        np.random.seed(42)
-        dates = pd.date_range(end=pd.Timestamp.now(), periods=50, freq="1D")
-        spy_df = pd.DataFrame({
-            "close": 450.0 + np.random.randn(50).cumsum() * 2.0
-        }, index=dates)
+        return "UNKNOWN"
     return detector.detect_market_regime(spy_df)
