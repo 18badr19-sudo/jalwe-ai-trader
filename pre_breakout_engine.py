@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -582,6 +583,7 @@ class PreBreakoutEngine:
         self,
         dataframe: Any,
         symbol: str,
+        *, validate_values: bool = True,
     ) -> pd.DataFrame:
 
         if dataframe is None:
@@ -764,6 +766,13 @@ class PreBreakoutEngine:
         # NUMERIC CONVERSION
         # ----------------------------------------------------
 
+        if not validate_values:
+            return dataframe.sort_index()
+
+        if any(dataframe[c].map(lambda v:isinstance(v,(bool,np.bool_))).any()
+               for c in self.REQUIRED_COLUMNS):
+            raise PreBreakoutDataError('Boolean OHLCV value.',status='INVALID_OHLCV')
+
         for column in (
             self.REQUIRED_COLUMNS
         ):
@@ -777,16 +786,14 @@ class PreBreakoutEngine:
                 )
             )
 
-        dataframe = dataframe.dropna(
-
-            subset=[
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ]
-        )
+        values = dataframe[list(self.REQUIRED_COLUMNS)]
+        valid = np.isfinite(values).all(axis=1) & (values>0).all(axis=1)
+        valid &= dataframe.high >= dataframe[['open','low','close']].max(axis=1)
+        valid &= dataframe.low <= dataframe[['open','close']].min(axis=1)
+        if not valid.all():
+            raise PreBreakoutDataError('Invalid OHLCV evidence.',status='INVALID_OHLCV')
+        if dataframe.index.has_duplicates:
+            raise PreBreakoutDataError('Duplicate bar timestamps.',status='INVALID_TIMESTAMPS')
 
         if dataframe.empty:
 
@@ -923,16 +930,20 @@ class PreBreakoutEngine:
             self._normalize_dataframe(
                 dataframe,
                 symbol,
+                validate_values=False,
             )
         )
 
-        if timeframe == '5Min':
+        duplicate_stamps = dataframe.index[dataframe.index.duplicated(keep=False)]
+
+        minutes = {'5Min':5,'30Min':30,'1Hour':60}.get(timeframe)
+        if minutes is not None:
             if (not isinstance(dataframe.index,pd.DatetimeIndex) or dataframe.index.tz is None
-                    or dataframe.index.has_duplicates):
-                raise PreBreakoutDataError('Invalid five-minute timestamps.',status='INVALID_TIMESTAMPS')
-            dataframe = dataframe.loc[dataframe.index + pd.Timedelta(minutes=5) <= end_dt]
+                    or dataframe.index.hasnans):
+                raise PreBreakoutDataError('Invalid intraday timestamps.',status='INVALID_TIMESTAMPS')
+            dataframe = dataframe.loc[dataframe.index + pd.Timedelta(minutes=minutes) <= end_dt]
             if dataframe.empty:
-                raise PreBreakoutDataError('No completed five-minute bars.',status='EMPTY_DATA')
+                raise PreBreakoutDataError('No completed intraday bars.',status='EMPTY_DATA')
         dataframe.attrs['data_feed'] = 'iex'
 
         # ----------------------------------------------------
@@ -951,7 +962,10 @@ class PreBreakoutEngine:
                 )
             )
 
-        return dataframe
+        if dataframe.index.isin(duplicate_stamps).any():
+            raise PreBreakoutDataError('Disputed timestamps in analysis window.',status='INVALID_TIMESTAMPS')
+        # Validate the completed analysis window, excluding unrelated old rows.
+        return self._normalize_dataframe(dataframe,symbol)
 
     # ========================================================
     # SESSION VWAP
@@ -962,35 +976,15 @@ class PreBreakoutEngine:
         dataframe: pd.DataFrame,
     ) -> pd.Series:
 
-        working = dataframe
-
-        if isinstance(
-            dataframe.index,
-            pd.DatetimeIndex,
-        ):
-
-            try:
-
-                last_date = (
-                    dataframe.index[-1]
-                    .date()
-                )
-
-                session = dataframe[
-                    dataframe.index.date
-                    ==
-                    last_date
-                ]
-
-                if len(
-                    session
-                ) >= 2:
-
-                    working = session
-
-            except Exception:
-
-                working = dataframe
+        if (dataframe.empty or not isinstance(dataframe.index,pd.DatetimeIndex)
+                or dataframe.index.tz is None or dataframe.index.hasnans
+                or dataframe.index.has_duplicates):
+            raise PreBreakoutDataError('VWAP requires dated intraday evidence.',status='INVALID_TIMESTAMPS')
+        ordered = dataframe.sort_index()
+        # Reset at the New York trading date, including its first bar. A lone
+        # new-session bar must never borrow the previous day's volume weight.
+        dates = ordered.index.tz_convert(ZoneInfo('America/New_York')).date
+        working = ordered.loc[dates == dates[-1]]
 
         typical = (
 
