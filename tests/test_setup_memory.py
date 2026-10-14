@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+from datetime import timedelta
 
 from research_orchestrator import (
     ResearchOrchestrator,
@@ -14,6 +15,7 @@ from research_orchestrator import (
 from setup_memory import (
     SetupMemoryStore,
     SetupMemoryWatcher,
+    utc_now,
 )
 
 
@@ -395,6 +397,12 @@ class ApexSetupMemoryTests(
             absorption=False,
             distribution=False,
         )
+
+        pre.timeframe_5m.available = True
+        pre.timeframe_5m.current_price = pre.current_price
+        pre.timeframe_5m.source_feed = 'iex'
+        now = utc_now()
+        pre.timeframe_5m.last_bar_at = (now.replace(minute=now.minute//5*5,second=0,microsecond=0)-timedelta(minutes=5)).isoformat()
 
         news_result = {
             "symbol": "TEST",

@@ -22,7 +22,9 @@ class SetupRefreshRegressions(unittest.TestCase):
     def watcher(self, price, activation, *, confidence=100, verdict="HIGH_PRIORITY_RESEARCH",
                 critical=False):
         pre = NS(score=90, data_confidence=confidence, current_price=price, ready=False,
-                 timeframe_5m=NS(resistance=activation, vwap=None, ma10=None, ma20=None))
+                 timeframe_5m=NS(resistance=activation, vwap=None, ma10=None, ma20=None,
+                    available=True,current_price=price,source_feed='iex',
+                    last_bar_at=(utc_now().replace(minute=utc_now().minute//5*5,second=0,microsecond=0)-timedelta(minutes=5)).isoformat()))
         builder = ResearchOrchestrator._setup_context
 
         def packet(**kwargs):
@@ -50,6 +52,10 @@ class SetupRefreshRegressions(unittest.TestCase):
         packet = self.orchestrator.jalwe_bridge.publish_shortlist.call_args.args[0][0]
         self.assertEqual(packet.metadata["setup_context"]["activation_price"], 20)
         self.assertEqual(packet.metadata["setup_memory"]["distance_to_activation_pct"], 0.5)
+        proof=packet.metadata['setup_memory']['freshness']
+        self.assertEqual(proof['state'],'FRESH_COMPLETED_5M')
+        self.assertEqual(proof['source_feed'],'iex')
+        self.assertLessEqual(proof['age_minutes'],15)
         self.assertEqual(self.store.get("TEST")["activation_price"], 20)
 
     def test_price_near_old_level_does_not_wake_far_from_new_level(self):
