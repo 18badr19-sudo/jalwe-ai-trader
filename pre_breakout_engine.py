@@ -50,6 +50,9 @@ class TimeframeAnalysis:
 
     current_price: Optional[float] = None
 
+    last_bar_at: Optional[str] = None
+    source_feed: Optional[str] = None
+
     rvol: Optional[float] = None
     volume_speed_ratio: Optional[float] = None
 
@@ -895,26 +898,13 @@ class PreBreakoutEngine:
                         feed="iex",
 
                         adjustment="raw",
+                        sort="desc",
                     )
                 )
 
             except TypeError:
-
-                bars = (
-                    self.alpaca
-                    .get_bars(
-
-                        symbol,
-
-                        timeframe,
-
-                        start=start,
-
-                        end=end,
-
-                        limit=request_limit,
-                    )
-                )
+                raise PreBreakoutDataError('Client does not support an explicit feed and sort.',
+                                           status='UNSUPPORTED_CLIENT') from None
 
         except Exception as exc:
 
@@ -935,6 +925,15 @@ class PreBreakoutEngine:
                 symbol,
             )
         )
+
+        if timeframe == '5Min':
+            if (not isinstance(dataframe.index,pd.DatetimeIndex) or dataframe.index.tz is None
+                    or dataframe.index.has_duplicates):
+                raise PreBreakoutDataError('Invalid five-minute timestamps.',status='INVALID_TIMESTAMPS')
+            dataframe = dataframe.loc[dataframe.index + pd.Timedelta(minutes=5) <= end_dt]
+            if dataframe.empty:
+                raise PreBreakoutDataError('No completed five-minute bars.',status='EMPTY_DATA')
+        dataframe.attrs['data_feed'] = 'iex'
 
         # ----------------------------------------------------
         # ONLY USE THE MOST RECENT REQUESTED NUMBER OF BARS
@@ -2329,6 +2328,10 @@ class PreBreakoutEngine:
         result.bars_used = len(
             dataframe
         )
+
+        if isinstance(dataframe.index,pd.DatetimeIndex) and dataframe.index.tz is not None and len(dataframe):
+            result.last_bar_at = dataframe.index[-1].isoformat()
+            result.source_feed = dataframe.attrs.get('data_feed')
 
         if (
             result.bars_used

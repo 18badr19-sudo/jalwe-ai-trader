@@ -1816,6 +1816,19 @@ class SetupMemoryWatcher:
         near_count = 0
         published: list[str] = []
         errors: list[str] = []
+        freshness_rejections: dict[str,int] = {}
+        freshness_proofs: dict[str,dict] = {}
+
+        def fresh(pre, symbol):
+            from setup_freshness import inspect_setup
+            proof = inspect_setup(pre)
+            logger.info('SETUP_MEMORY_FRESHNESS %s',json.dumps(dict(symbol=symbol,**proof)))
+            if proof['state']!='FRESH_COMPLETED_5M':
+                reason = proof['state']
+                freshness_rejections[reason] = freshness_rejections.get(reason,0)+1
+                return False
+            freshness_proofs[symbol] = proof
+            return True
 
         for row in due:
             symbol = str(
@@ -1871,6 +1884,9 @@ class SetupMemoryWatcher:
                         None,
                     )
                 )
+
+                if not fresh(pre,symbol):
+                    continue
 
                 if (
                     pre_score
@@ -2068,6 +2084,12 @@ class SetupMemoryWatcher:
                         "for saved-setup wake."
                     )
 
+                # News/deep analysis can consume time. Validate the same source
+                # evidence again at publication, without stamping it as new.
+                if not fresh(pre,symbol):
+                    continue
+
+                packet.metadata['setup_memory']['freshness'] = freshness_proofs[symbol]
                 acknowledged = (
                     bridge.publish_shortlist(
                         [
@@ -2126,6 +2148,7 @@ class SetupMemoryWatcher:
             "near_activation": near_count,
             "published": published,
             "errors": errors,
+            "freshness_rejections": freshness_rejections,
         }
 
     def process_cycle(
