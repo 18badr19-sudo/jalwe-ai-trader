@@ -120,6 +120,8 @@ def snapshot_candidate(symbol, snapshot, now, min_price, max_price, ranker, reje
         float_shares=None, dollar_volume=price * volume, tradable=True,
         reasons=reasons, warnings=warnings + ["VOLUME_PACE_PROXY_NOT_HISTORICAL_RVOL"],
         raw={"source": "ALPACA_SNAPSHOT", "latest_bar_at": minute["t"],
+             "minute_bar": {k:minute.get(k) for k in ("t","o","h","l","c","v")},
+             "latest_trade_at": trade.get("t"),
              "volume_basis": "current_daily_bar" if current_day else "latest_minute_bar",
              "previous_day_volume": previous_volume, "session_fraction": fraction})
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import math
 import os
+import json
+from datetime import datetime, timezone
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1399,12 +1401,30 @@ class ScannerEngine:
             api_secret=self.api_secret, feed=self.data_feed,
             min_price=self.scan_min_price, max_price=self.scan_max_price,
             ranker=self._rank_candidate)
-        selected = [RankedCandidate(**item) for item in scan.candidates[:max(1, int(top_n))]]
+        enabled = os.getenv("APEX_EARLY_SURGE_ENABLED", "false").strip().lower() == "true"
+        paper = self.base_url.rstrip('/') == "https://paper-api.alpaca.markets"
+        selected_rows = scan.candidates[:max(1,int(top_n))]
+        priority_symbols = []
+        try:
+            from early_surge_radar import enrich, reserve, RADAR_SLOTS
+            enriched, early = enrich(scan.candidates,enabled=enabled and scan.complete,paper=paper,feed=self.data_feed,
+                api_key=self.api_key,api_secret=self.api_secret)
+            if not scan.complete:
+                early['state'] = 'INCOMPLETE_SCAN_NO_PROBES'
+            selected_rows, priority_symbols = reserve(enriched,limit=top_n,slot_cap=RADAR_SLOTS,
+                enabled=enabled and scan.complete,paper=paper,now=datetime.now(timezone.utc))
+        except Exception as exc:
+            early = dict(state="UNAVAILABLE",error_type=type(exc).__name__)
+        selected = [RankedCandidate(**item) for item in selected_rows]
+        early['priority_symbols'] = priority_symbols
+        logger.info('APEX_EARLY_SURGE_RADAR %s',json.dumps(early,sort_keys=True))
+        selected_symbols = {item.symbol for item in selected}
         for rank, item in enumerate(scan.candidates, 1):
             row = scan.audit.get(item["symbol"])
             if row is not None:
                 row.update(stage="RADAR", rank=rank, radar_limit=max(1, int(top_n)),
-                           reason="SELECTED_RADAR" if rank <= max(1, int(top_n)) else "OUTSIDE_RADAR_TOP_N")
+                           reason="SELECTED_RADAR" if item['symbol'] in selected_symbols else "OUTSIDE_RADAR_TOP_N",
+                           early_surge_priority=item['symbol'] in priority_symbols)
         status = "SUCCESS" if selected else "NO_MATCHES"
         if not scan.complete:
             status = "INCOMPLETE"
