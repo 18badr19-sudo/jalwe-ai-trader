@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -1075,6 +1076,7 @@ class ResearchOrchestrator:
             ),
 
             metadata={
+                "early_surge": (getattr(candidate,"raw",None) or {}).get("early_surge"),
                 "watch_lane":
                     "FAST_OPPORTUNITY",
                 "setup_context":
@@ -1480,12 +1482,28 @@ class ResearchOrchestrator:
             ]
         )
 
+        # Reserve research seats after the existing confidence filter. No
+        # early-momentum flag changes scores, verdicts or trading authority.
+        early_symbols = []
+        try:
+            from early_surge_radar import reserve, DEEP_SLOTS
+            def early_candidate(item):
+                c = item[0]
+                return dict(symbol=c.symbol,price=c.price,tradable=c.tradable,raw=c.raw)
+            deep_candidates, early_symbols = reserve(pre_results,limit=deep_research_top_n,slot_cap=DEEP_SLOTS,
+                enabled=os.getenv("APEX_EARLY_SURGE_ENABLED","false").strip().lower()=="true",
+                paper=getattr(self.scanner,"base_url",None)=="https://paper-api.alpaca.markets",
+                now=datetime.now(timezone.utc),candidate_of=early_candidate)
+        except Exception as exc:
+            logger.warning('APEX_EARLY_SURGE_DEEP_UNAVAILABLE %s',type(exc).__name__)
+        selected_symbols = {candidate.symbol for candidate,_ in deep_candidates}
         for rank, (candidate, pre) in enumerate(pre_results, 1):
             self._audit_research(result, candidate.symbol, "DEEP",
-                "SELECTED_DEEP_RESEARCH" if rank <= len(deep_candidates) else "OUTSIDE_DEEP_TOP_N",
+                "SELECTED_DEEP_RESEARCH" if candidate.symbol in selected_symbols else "OUTSIDE_DEEP_TOP_N",
                 rank=rank, deep_limit=max(1, int(deep_research_top_n)),
                 pre_score=self._float(getattr(pre, "score", 0.0)),
-                confidence=self._float(getattr(pre, "data_confidence", 0.0)))
+                confidence=self._float(getattr(pre, "data_confidence", 0.0)),
+                early_surge_priority=candidate.symbol in early_symbols)
 
         result.deep_research_count = (
             len(
