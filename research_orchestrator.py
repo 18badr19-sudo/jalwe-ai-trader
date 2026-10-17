@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -1077,6 +1078,7 @@ class ResearchOrchestrator:
 
             metadata={
                 "early_surge": (getattr(candidate,"raw",None) or {}).get("early_surge"),
+                "prior_day_signal": (getattr(candidate,"raw",None) or {}).get("prior_day_signal"),
                 "watch_lane":
                     "FAST_OPPORTUNITY",
                 "setup_context":
@@ -1098,6 +1100,13 @@ class ResearchOrchestrator:
     # ========================================================
 
     def _audit_research(self, result, symbol, stage, reason, **values):
+        proof=getattr(result,'prior_day_proofs',{}).get(symbol)
+        if proof:
+            try:
+                from prior_day_apex_priority import stage_event
+                stage_event(proof,stage,reason,str(result.scan_id or result.started_at),**values)
+            except Exception as exc:
+                logger.warning('PRIOR_DAY_TRACE_UNAVAILABLE %s',type(exc).__name__)
         emit_audit(result.scan_id or result.started_at, result.data_feed,
                    [{"symbol": symbol, "stage": stage, "reason": reason, **values}])
 
@@ -1331,6 +1340,7 @@ class ResearchOrchestrator:
             []
         )
 
+        result.prior_day_proofs={c.symbol:(getattr(c,'raw',None) or {}).get('prior_day_signal') for c in radar_candidates}
         result.radar_count = len(
             radar_candidates
         )
@@ -1497,13 +1507,28 @@ class ResearchOrchestrator:
         except Exception as exc:
             logger.warning('APEX_EARLY_SURGE_DEEP_UNAVAILABLE %s',type(exc).__name__)
         selected_symbols = {candidate.symbol for candidate,_ in deep_candidates}
+        prior_symbols=[]
+        try:
+            from prior_day_apex_priority import reserve as prior_reserve, DEEP_SLOTS as PRIOR_SLOTS
+            deep_candidates,prior_audit=prior_reserve(pre_results,deep_candidates,
+                limit=max(1,int(deep_research_top_n)),slots=PRIOR_SLOTS,now=datetime.now(timezone.utc),
+                paper=getattr(self.scanner,'base_url',None)=='https://paper-api.alpaca.markets',
+                candidate_of=lambda item:dict(symbol=item[0].symbol,price=item[0].price,
+                    tradable=item[0].tradable,raw=item[0].raw),stage='DEEP',trace_key=str(result.scan_id or result.started_at))
+            logger.info('APEX_PRIOR_DAY_DEEP %s',json.dumps(prior_audit,sort_keys=True))
+            prior_symbols=prior_audit.get('priority_symbols',[])
+        except Exception as exc:
+            logger.warning('APEX_PRIOR_DAY_DEEP_UNAVAILABLE %s',type(exc).__name__)
+        result.prior_day_proofs={c.symbol:(getattr(c,'raw',None) or {}).get('prior_day_signal') for c,_ in pre_results}
+        selected_symbols = {candidate.symbol for candidate,_ in deep_candidates}
         for rank, (candidate, pre) in enumerate(pre_results, 1):
             self._audit_research(result, candidate.symbol, "DEEP",
                 "SELECTED_DEEP_RESEARCH" if candidate.symbol in selected_symbols else "OUTSIDE_DEEP_TOP_N",
                 rank=rank, deep_limit=max(1, int(deep_research_top_n)),
                 pre_score=self._float(getattr(pre, "score", 0.0)),
                 confidence=self._float(getattr(pre, "data_confidence", 0.0)),
-                early_surge_priority=candidate.symbol in early_symbols)
+                early_surge_priority=candidate.symbol in early_symbols,
+                prior_day_priority=candidate.symbol in prior_symbols)
 
         result.deep_research_count = (
             len(

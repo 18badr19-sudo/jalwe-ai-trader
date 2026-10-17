@@ -1415,6 +1415,16 @@ class ScannerEngine:
                 enabled=enabled and scan.complete,paper=paper,now=datetime.now(timezone.utc))
         except Exception as exc:
             early = dict(state="UNAVAILABLE",error_type=type(exc).__name__)
+        prior_symbols=[]
+        try:
+            from prior_day_apex_priority import reserve as prior_reserve, RADAR_SLOTS as PRIOR_SLOTS
+            selected_rows,prior_audit=prior_reserve(enriched if 'enriched' in locals() else scan.candidates,
+                selected_rows,limit=max(1,int(top_n)),slots=PRIOR_SLOTS,now=datetime.now(timezone.utc),
+                paper=paper,complete=scan.complete,trace_key=scan.scan_id)
+            prior_symbols=prior_audit.get('priority_symbols',[])
+            logger.info('APEX_PRIOR_DAY_RADAR %s',json.dumps(prior_audit,sort_keys=True))
+        except Exception as exc:
+            logger.warning('APEX_PRIOR_DAY_UNAVAILABLE %s',type(exc).__name__)
         selected = [RankedCandidate(**item) for item in selected_rows]
         early['priority_symbols'] = priority_symbols
         logger.info('APEX_EARLY_SURGE_RADAR %s',json.dumps(early,sort_keys=True))
@@ -1424,7 +1434,8 @@ class ScannerEngine:
             if row is not None:
                 row.update(stage="RADAR", rank=rank, radar_limit=max(1, int(top_n)),
                            reason="SELECTED_RADAR" if item['symbol'] in selected_symbols else "OUTSIDE_RADAR_TOP_N",
-                           early_surge_priority=item['symbol'] in priority_symbols)
+                           early_surge_priority=item['symbol'] in priority_symbols,
+                           prior_day_priority=item['symbol'] in prior_symbols)
         status = "SUCCESS" if selected else "NO_MATCHES"
         if not scan.complete:
             status = "INCOMPLETE"
