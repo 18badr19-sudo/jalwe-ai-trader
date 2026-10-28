@@ -29,6 +29,13 @@ def _safe(value):
 
 def emit_audit(scan_id, feed, rows, *, logger=None, max_chars=3000, sleep=time.sleep):
     """Use an explicit stdout handler, bounded lines and at most 200 lines/sec."""
+    rows = list(rows)
+    # Best-effort bounded background retention; never block scanning on DB I/O.
+    try:
+        from scanner_evidence import submit
+        submit(str(scan_id), feed, rows)
+    except Exception as exc:
+        audit_logger.warning('SCANNER_EVIDENCE_SUBMIT_FAILED %s', type(exc).__name__)
     logger = logger if logger is not None else audit_logger
     prefix = {"scan_id": scan_id, "feed": feed}
     chunk = []
