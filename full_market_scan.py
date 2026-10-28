@@ -63,6 +63,8 @@ def snapshot_candidate(symbol, snapshot, now, min_price, max_price, ranker, reje
             rejections[reason] = rejections.get(reason, 0) + 1
         if audit is not None:
             audit[symbol] = audit_row(symbol, snapshot, now, reason)
+            if reason == 'PRICE_OUT_OF_RANGE':
+                audit[symbol].update(min_price=min_price,max_price=max_price)
         return None
 
     if not isinstance(snapshot, dict):
