@@ -1,0 +1,8 @@
+requests
+pandas
+python-dotenv
+python-dateutil
+alpaca-trade-api
+finvizfinance
+scikit-learn
+psycopg2-binary
