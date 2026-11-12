@@ -1400,7 +1400,13 @@ class ScannerEngine:
         scan = scan_market(self._get_tradable_symbols(), api_key=self.api_key,
             api_secret=self.api_secret, feed=self.data_feed,
             min_price=self.scan_min_price, max_price=self.scan_max_price,
-            ranker=self._rank_candidate)
+            ranker=self._rank_candidate,
+            start_after=getattr(self, "_refresh_cursor", None))
+        next_cursor = getattr(scan, "refresh_next_after", None)
+        if next_cursor is not None:
+            self._refresh_cursor = next_cursor
+        logger.info("Scanner refresh rotation: next_after=%s scan_id=%s",
+                    getattr(self, "_refresh_cursor", None), scan.scan_id)
         enabled = os.getenv("APEX_EARLY_SURGE_ENABLED", "false").strip().lower() == "true"
         paper = self.base_url.rstrip('/') == "https://paper-api.alpaca.markets"
         selected_rows = scan.candidates[:max(1,int(top_n))]
