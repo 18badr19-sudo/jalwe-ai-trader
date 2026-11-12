@@ -112,6 +112,30 @@ class ScanRefreshTests(unittest.TestCase):
                 self.assertEqual(result.audit["A000"]["reason"], "SUPPRESSED_INCOMPLETE_SCAN")
                 self.assertEqual(result.audit["A025"]["reason"], "UNSCANNED_SCAN_ABORTED")
 
+    def test_refresh_budget_rotates_to_previously_starved_symbols(self):
+        items = {f"A{i:03d}": stale_snapshot() for i in range(60)}
+        items["YMT"] = stale_snapshot()
+        cursor = None
+        recovered = set()
+        for _ in range(3):
+            session = RefreshSession(items, {s: fresh_bar() for s in items})
+            result = self.scan(session, batch_size=25, refresh_max_batches=1,
+                               start_after=cursor)
+            self.assertTrue(result.complete)
+            self.assertEqual(result.scanned_count, len(items))
+            self.assertEqual(len(session.calls), 4)
+            recovered.update(c["symbol"] for c in result.candidates)
+            cursor = result.refresh_next_after
+        self.assertEqual(recovered, set(items))
+
+    def test_rotation_handles_removed_cursor_and_keeps_failure_suppression(self):
+        items = {f"A{i:03d}": stale_snapshot() for i in range(60)}
+        session = RefreshSession(items, {}, refresh_status=403)
+        result = self.scan(session, batch_size=25, start_after="A024_REMOVED")
+        self.assertEqual(session.calls[0][1]["params"]["symbols"].split(",")[0], "A025")
+        self.assertFalse(result.complete)
+        self.assertEqual(result.candidates, [])
+
     def test_failed_optional_refresh_keeps_original_rejection(self):
         result = self.scan(RefreshSession({"YMT": stale_snapshot()}, {}, refresh_status=500))
         self.assertTrue(result.complete)

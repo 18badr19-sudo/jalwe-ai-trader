@@ -203,6 +203,17 @@ class ScannerIntegrationTests(unittest.TestCase):
         self.assertEqual(result.symbols, [])
         engine._run_custom_screen.assert_not_called()
 
+    def test_engine_carries_refresh_cursor_between_scans(self):
+        engine = self.engine()
+        engine._get_tradable_symbols = Mock(return_value={"A", "Z"})
+        with patch("scanner_engine.scan_market", side_effect=[
+            ScanResult(refresh_next_after="A"), ScanResult(), ScanResult()
+        ]) as scan:
+            for _ in range(3):
+                engine._run_full_market_radar(40)
+        self.assertEqual([call.kwargs["start_after"] for call in scan.call_args_list],
+                         [None, "A", "A"])
+
     def test_nontradable_and_known_funds_excluded_from_universe(self):
         engine = self.engine()
         engine.alpaca.list_assets.return_value = [

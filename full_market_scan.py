@@ -143,18 +143,27 @@ class ScanResult:
     refresh_requested: int = 0
     refresh_recovered: int = 0
     refresh_failed_batches: int = 0
+    refresh_next_after: str | None = None
 
 
 def scan_market(symbols, *, api_key, api_secret, feed, min_price, max_price,
                 ranker: Callable, batch_size=150, timeout=15, deadline_seconds=180,
                 request_interval=0.5, session=None, clock=time.monotonic,
-                sleep=time.sleep, now=lambda: datetime.now(timezone.utc), refresh_max_batches=8):
+                sleep=time.sleep, now=lambda: datetime.now(timezone.utc), refresh_max_batches=8,
+                start_after=None):
     """Visit every symbol before ranking; do not stop when top_n is filled.
 
     A failed or timed-out batch makes the entire scan incomplete. Its candidates
     are never published, avoiding silent alphabet-biased partial coverage.
     """
     symbols = sorted(set(symbols))
+    # Rotate traversal after the last attempted refresh from the previous scan.
+    # Every symbol is still visited before publication. This prevents a fixed
+    # request cap from permanently favouring the alphabetically first symbols.
+    if start_after and symbols:
+        from bisect import bisect_right
+        pivot = bisect_right(symbols, start_after)
+        symbols = symbols[pivot:] + symbols[:pivot]
     result = ScanResult(universe_count=len(symbols))
     if not symbols:
         result.warnings.append("ALPACA_ASSET_UNIVERSE_EMPTY")
@@ -240,6 +249,7 @@ def scan_market(symbols, *, api_key, api_secret, feed, min_price, max_price,
                 else:
                     refresh_batches += 1
                     result.refresh_requested += len(refresh_symbols)
+                    result.refresh_next_after = refresh_symbols[-1]
                     refresh_status = None
                     try:
                         response = client.get("https://data.alpaca.markets/v2/stocks/bars/latest",
